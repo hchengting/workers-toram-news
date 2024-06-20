@@ -127,10 +127,22 @@ function postDiscordWebhook(webhook, news) {
     }
 }
 
+async function saveUnsentUpdates(env, unsentUpdates) {
+    // Remove empty unsent updates
+    for (const webhook in unsentUpdates) {
+        if (!unsentUpdates[webhook].length) {
+            delete unsentUpdates[webhook]
+        }
+    }
+
+    // Save unsent updates
+    await env.TORAM.put('discord-unsent-updates', JSON.stringify(unsentUpdates))
+}
+
 async function sendDiscordUpdates(env, updates) {
     const webhooks = JSON.parse(await env.TORAM.get('discord-webhooks')) || [] // [webhook1, webhook2...]
     const unsentUpdates = JSON.parse(await env.TORAM.get('discord-unsent-updates')) || {} // { webhook1: [news1, news2...], webhook2: [news1, news2...] }
-    
+
     // Remove invalid webhooks from unsent updates
     Object.keys(unsentUpdates).forEach((webhook) => {
         if (!webhooks.includes(webhook)) {
@@ -138,18 +150,14 @@ async function sendDiscordUpdates(env, updates) {
         }
     })
 
-    // Group updates by webhook
+    // Combine updates with unsent updates
     for (const webhook of webhooks) {
-        if (unsentUpdates[webhook]) {
-            unsentUpdates[webhook].unshift(...updates)
-        } else {
-            unsentUpdates[webhook] = [...updates]
-        }
+        unsentUpdates[webhook] = [...updates, ...(unsentUpdates[webhook] || [])]
     }
 
     try {
         while (Object.values(unsentUpdates).reduce((acc, val) => acc + val.length, 0)) {
-            // Round-robin updates
+            // Round-robin send updates to webhooks
             for (const webhook in unsentUpdates) {
                 const news = unsentUpdates[webhook].pop()
                 if (news) {
@@ -162,19 +170,11 @@ async function sendDiscordUpdates(env, updates) {
                 }
             }
         }
+        await saveUnsentUpdates(env, unsentUpdates)
     } catch (error) {
-        console.error(error)
+        await saveUnsentUpdates(env, unsentUpdates)
+        throw error
     }
-
-    // Remove empty unsent updates
-    for (const webhook in unsentUpdates) {
-        if (!unsentUpdates[webhook].length) {
-            delete unsentUpdates[webhook]
-        }
-    }
-
-    // Save unsent updates
-    await env.TORAM.put('discord-unsent-updates', JSON.stringify(unsentUpdates))
 }
 
 export default {
