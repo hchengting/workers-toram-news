@@ -1,5 +1,6 @@
 import { Feed } from 'feed'
 import { parse } from 'node-html-parser'
+import query from './query'
 
 const baseurl = 'https://tw.toram.jp'
 const path = '/information/?type_code=all'
@@ -8,6 +9,7 @@ const headers = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36 Edg/125.0.0.0',
 }
 
+// Return news in ascending order
 async function fetchNews() {
     const news = []
     const response = await fetch(url, { headers })
@@ -26,7 +28,7 @@ async function fetchNews() {
         const link = `${baseurl}${newsNode.querySelector('a').getAttribute('href')}`
         const thumbnail = newsNode.querySelector('img').getAttribute('src')
 
-        news.push({
+        news.unshift({
             date,
             title,
             link,
@@ -56,25 +58,25 @@ async function fetchNewsImage(link) {
     }
 }
 
-async function checkUpdates(env, news) {
+async function updateLatestNews(queryLatestNews, news) {
     const updates = []
-    const prevNews = JSON.parse(await env.TORAM.get('news')) || []
-    const prevNewsLinks = prevNews.map((item) => item.link)
 
+    // Push news if not exists
     for (const item of news) {
-        if (!prevNewsLinks.includes(item.link)) {
+        if (!(await queryLatestNews.includes(item))) {
             item.img = await fetchNewsImage(item.link)
+            await queryLatestNews.push(item)
             updates.push(item)
         }
     }
 
-    return {
-        updates,
-        updatedNews: [...updates, ...prevNews].slice(0, 10),
-    }
+    // Keep only the last 10 news
+    await queryLatestNews.slice()
+
+    return updates
 }
 
-async function generateFeed(env, news) {
+async function generateFeed(kv, news) {
     const feed = new Feed({
         title: '托蘭異世錄官網 - Toram Online -',
         description: '托蘭異世錄官網 - Toram Online - 公告',
@@ -96,12 +98,12 @@ async function generateFeed(env, news) {
         })
     }
 
-    await env.FEEDS.put('/toram', feed.rss2())
+    await kv.put('/toram', feed.rss2())
 }
 
-function postDiscordWebhook(webhook, news) {
+function postDiscordWebhook(webhookUrl, news) {
     try {
-        return fetch(`${webhook}?wait=true`, {
+        return fetch(`${webhookUrl}?wait=true`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -112,10 +114,10 @@ function postDiscordWebhook(webhook, news) {
                         title: `[${news.date}] ${news.title}`,
                         url: news.link,
                         image: {
-                            url: news.img,
+                            url: news.img || undefined,
                         },
                         thumbnail: {
-                            url: news.thumbnail,
+                            url: news.thumbnail || undefined,
                         },
                     },
                 ],
@@ -127,66 +129,57 @@ function postDiscordWebhook(webhook, news) {
     }
 }
 
-async function saveUnsentUpdates(env, unsentUpdates) {
-    // Remove empty unsent updates
-    for (const webhook in unsentUpdates) {
-        if (!unsentUpdates[webhook].length) {
-            delete unsentUpdates[webhook]
+async function pushPendingNews(queryWebhooks, queryPendingNews, updates) {
+    const webhooks = await queryWebhooks.list()
+
+    for (const news of updates) {
+        for (const webhook of webhooks) {
+            await queryPendingNews.push(webhook.id, news)
         }
     }
-
-    // Save unsent updates
-    await env.TORAM.put('discord-unsent-updates', JSON.stringify(unsentUpdates))
 }
 
-async function sendDiscordUpdates(env, updates) {
-    const webhooks = JSON.parse(await env.TORAM.get('discord-webhooks')) || [] // [webhook1, webhook2...]
-    const unsentUpdates = JSON.parse(await env.TORAM.get('discord-unsent-updates')) || {} // { webhook1: [news1, news2...], webhook2: [news1, news2...] }
+async function sendPendingNews(queryPendingNews) {
+    while (true) {
+        const news = await queryPendingNews.next()
+        if (!news) break
 
-    // Remove invalid webhooks from unsent updates
-    Object.keys(unsentUpdates).forEach((webhook) => {
-        if (!webhooks.includes(webhook)) {
-            delete unsentUpdates[webhook]
-        }
-    })
-
-    // Combine updates with unsent updates
-    for (const webhook of webhooks) {
-        unsentUpdates[webhook] = [...updates, ...(unsentUpdates[webhook] || [])]
-    }
-
-    try {
-        while (Object.values(unsentUpdates).reduce((acc, val) => acc + val.length, 0)) {
-            // Round-robin send updates to webhooks
-            for (const webhook in unsentUpdates) {
-                const news = unsentUpdates[webhook].pop()
-                if (news) {
-                    const res = await postDiscordWebhook(webhook, news)
-                    if (res?.status !== 200) {
-                        unsentUpdates[webhook].push(news)
-                        throw new Error(`Failed to post webhook ${webhook}, status code: ${res?.status}`)
-                    }
-                    await new Promise((resolve) => setTimeout(resolve, 1000))
-                }
+        // Retry 5 times
+        let success = false
+        for (let i = 1; i <= 5; i++) {
+            const res = await postDiscordWebhook(news.webhookUrl, news)
+            if (res?.status === 200) {
+                success = true
+                break
             }
+            console.error(`Failed to post webhook ${news.webhookUrl}, status code: ${res?.status}`)
+            await new Promise((resolve) => setTimeout(resolve, 1000 * i))
         }
-        await saveUnsentUpdates(env, unsentUpdates)
-    } catch (error) {
-        await saveUnsentUpdates(env, unsentUpdates)
-        throw error
+
+        if (!success) {
+            throw new Error(`Failed to post webhook ${news.webhookUrl}`)
+        }
+
+        await queryPendingNews.pop()
+        await new Promise((resolve) => setTimeout(resolve, 1000))
     }
 }
 
 export default {
     async scheduled(event, env, ctx) {
+        const queryLatestNews = query.latestNews(env.TORAM)
+        const queryWebhooks = query.webhooks(env.TORAM)
+        const queryPendingNews = query.pendingNews(env.TORAM)
+
         const news = await fetchNews()
-        const { updates, updatedNews } = await checkUpdates(env, news)
+        const updates = await updateLatestNews(queryLatestNews, news)
 
         if (updates.length) {
-            await generateFeed(env, updatedNews)
-            await env.TORAM.put('news', JSON.stringify(updatedNews))
+            const updatedNews = await queryLatestNews.list()
+            await generateFeed(env.FEEDS, updatedNews)
+            await pushPendingNews(queryWebhooks, queryPendingNews, updates)
         }
 
-        await sendDiscordUpdates(env, updates)
+        await sendPendingNews(queryPendingNews)
     },
 }

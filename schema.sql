@@ -1,0 +1,28 @@
+DROP TABLE IF EXISTS latest_news;
+DROP TABLE IF EXISTS webhooks;
+DROP TABLE IF EXISTS pending_news;
+
+CREATE TABLE IF NOT EXISTS latest_news (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    date TEXT NOT NULL,
+    title TEXT NOT NULL,
+    link TEXT NOT NULL,
+    thumbnail TEXT NOT NULL,
+    img TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS webhooks (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    url TEXT NOT NULL UNIQUE
+);
+
+CREATE TABLE IF NOT EXISTS pending_news (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    webhook_id INTEGER NOT NULL,
+    date TEXT NOT NULL,
+    title TEXT NOT NULL,
+    link TEXT NOT NULL,
+    thumbnail TEXT NOT NULL,
+    img TEXT NOT NULL,
+    FOREIGN KEY (webhook_id) REFERENCES webhooks(id) ON DELETE CASCADE
+);

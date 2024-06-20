@@ -7,12 +7,13 @@ compatibility_flags = ["nodejs_compat"]
 workers_dev = false
 
 [triggers]
-crons = ["*/10 * * * *"]
+crons = ["*/5 * * * *"]
 
-[[kv_namespaces]]
+[[d1_databases]]
 binding = "TORAM"
-id = "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
+database_name = "toram"
+database_id = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
 
 [[kv_namespaces]]
 binding = "FEEDS"
-id = "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
+id = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
