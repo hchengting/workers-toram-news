@@ -61,17 +61,17 @@ async function fetchNewsImage(link) {
 async function updateLatestNews(queryLatestNews, news) {
     const updates = []
 
-    // Push news if not exists
+    // Check for updates
     for (const item of news) {
         if (!(await queryLatestNews.includes(item))) {
             item.img = await fetchNewsImage(item.link)
-            await queryLatestNews.push(item)
             updates.push(item)
         }
     }
 
-    // Keep only the last 10 news
-    await queryLatestNews.slice()
+    // Update latest news and keep only the last 10 news
+    await queryLatestNews.insert(updates)
+    await queryLatestNews.deleteOld()
 
     return updates
 }
@@ -129,19 +129,22 @@ function postDiscordWebhook(webhookUrl, news) {
     }
 }
 
-async function pushPendingNews(queryWebhooks, queryPendingNews, updates) {
+async function insertPendingNews(queryWebhooks, queryPendingNews, updates) {
     const webhooks = await queryWebhooks.list()
+    const pendingNews = []
 
     for (const news of updates) {
         for (const webhook of webhooks) {
-            await queryPendingNews.push(webhook.id, news)
+            pendingNews.push({ ...news, webhookId: webhook.id })
         }
     }
+
+    await queryPendingNews.insert(pendingNews)
 }
 
 async function sendPendingNews(queryPendingNews) {
     while (true) {
-        const news = await queryPendingNews.next()
+        const news = await queryPendingNews.getFirst()
         if (!news) break
 
         // Retry 5 times
@@ -160,7 +163,7 @@ async function sendPendingNews(queryPendingNews) {
             throw new Error(`Failed to post webhook ${news.webhookUrl}`)
         }
 
-        await queryPendingNews.pop()
+        await queryPendingNews.deleteFirst()
         await new Promise((resolve) => setTimeout(resolve, 1000))
     }
 }
@@ -177,7 +180,7 @@ export default {
         if (updates.length) {
             const updatedNews = await queryLatestNews.list()
             await generateFeed(env.FEEDS, updatedNews)
-            await pushPendingNews(queryWebhooks, queryPendingNews, updates)
+            await insertPendingNews(queryWebhooks, queryPendingNews, updates)
         }
 
         await sendPendingNews(queryPendingNews)
