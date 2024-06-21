@@ -9,7 +9,6 @@ const headers = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36 Edg/125.0.0.0',
 }
 
-// Return news in ascending order
 async function fetchNews() {
     const news = []
     const response = await fetch(url, { headers })
@@ -28,7 +27,7 @@ async function fetchNews() {
         const link = `${baseurl}${newsNode.querySelector('a').getAttribute('href')}`
         const thumbnail = newsNode.querySelector('img').getAttribute('src')
 
-        news.unshift({
+        news.push({
             date,
             title,
             link,
@@ -36,6 +35,7 @@ async function fetchNews() {
         })
     }
 
+    // Newest first
     return news
 }
 
@@ -66,17 +66,21 @@ async function updateLatestNews(queryLatestNews, news) {
         if (!(await queryLatestNews.includes(item))) {
             item.img = await fetchNewsImage(item.link)
             updates.push(item)
-        }
+        } else break
     }
 
-    // Update latest news and keep only the last 10 news
+    // Oldest first
+    updates.reverse()
+
+    // Update latest news
     await queryLatestNews.insert(updates)
-    await queryLatestNews.deleteOld()
 
     return updates
 }
 
-async function generateFeed(kv, news) {
+async function generateFeed(kv, queryLatestNews) {
+    const news = (await queryLatestNews.list()).reverse()
+
     const feed = new Feed({
         title: '托蘭異世錄官網 - Toram Online -',
         description: '托蘭異世錄官網 - Toram Online - 公告',
@@ -178,8 +182,7 @@ export default {
         const updates = await updateLatestNews(queryLatestNews, news)
 
         if (updates.length) {
-            const updatedNews = await queryLatestNews.list()
-            await generateFeed(env.FEEDS, updatedNews)
+            await generateFeed(env.FEEDS, queryLatestNews)
             await insertPendingNews(queryWebhooks, queryPendingNews, updates)
         }
 
