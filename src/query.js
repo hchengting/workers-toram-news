@@ -22,21 +22,21 @@ const pendingNews = (db) => {
     // Batch insert updates with webhook id into pending news
     const insert = async (updates) => {
         const stmts = [
-            db.prepare('CREATE TABLE temp_updates (id INTEGER PRIMARY KEY AUTOINCREMENT, date TEXT, title TEXT, link TEXT, thumbnail TEXT, img TEXT)'),
-            db.prepare('INSERT INTO temp_updates (date, title, link, thumbnail, img) VALUES (?, ?, ?, ?, ?)'),
+            db.prepare('CREATE TABLE updates (id INTEGER PRIMARY KEY AUTOINCREMENT, date TEXT, title TEXT, link TEXT, thumbnail TEXT, img TEXT)'),
+            db.prepare('INSERT INTO updates (date, title, link, thumbnail, img) VALUES (?, ?, ?, ?, ?)'),
             db.prepare(
-                'INSERT INTO pending_news (webhook_id, date, title, link, thumbnail, img) SELECT webhooks.id, temp_updates.date, temp_updates.title, temp_updates.link, temp_updates.thumbnail, temp_updates.img FROM temp_updates CROSS JOIN webhooks ORDER BY temp_updates.id ASC'
+                'INSERT INTO pending_news (webhook_id, date, title, link, thumbnail, img) SELECT webhooks.id, updates.date, updates.title, updates.link, updates.thumbnail, updates.img FROM updates CROSS JOIN webhooks ORDER BY updates.id ASC'
             ),
-            db.prepare('DROP TABLE temp_updates'),
+            db.prepare('DROP TABLE updates'),
         ]
 
         await db.batch([stmts[0], ...updates.map((n) => stmts[1].bind(n.date, n.title, n.link, n.thumbnail || '', n.img || '')), stmts[2], stmts[3]])
     }
 
-    // Get the first pending news
+    // Get the first pending news with webhook url
     const getFirst = async () => {
         const stmt = db.prepare(
-            'SELECT pending_news.*, webhooks.url AS webhookUrl FROM pending_news JOIN webhooks ON pending_news.webhook_id = webhooks.id ORDER BY pending_news.id ASC LIMIT 1'
+            'SELECT p.*, w.url AS webhookUrl FROM (SELECT * FROM pending_news ORDER BY id ASC LIMIT 1) AS p JOIN webhooks AS w ON p.webhook_id = w.id'
         )
         return await stmt.first()
     }
