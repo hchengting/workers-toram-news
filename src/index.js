@@ -40,7 +40,6 @@ async function fetchNews() {
 }
 
 async function fetchNewsImage(link) {
-    // Delay avoid being blocked
     await new Promise((resolve) => setTimeout(resolve, 1000))
 
     try {
@@ -59,11 +58,13 @@ async function fetchNewsImage(link) {
 }
 
 async function updateLatestNews(queryLatestNews, news) {
+    const latestNews = await queryLatestNews.list()
+    const latestNewsLinks = latestNews.map((n) => n.link)
     const updates = []
 
     // Check for updates
     for (const item of news) {
-        if (!(await queryLatestNews.includes(item))) {
+        if (!latestNewsLinks.includes(item.link)) {
             item.img = await fetchNewsImage(item.link)
             updates.push(item)
         } else break
@@ -73,7 +74,7 @@ async function updateLatestNews(queryLatestNews, news) {
     updates.reverse()
 
     // Update latest news
-    await queryLatestNews.insert(updates)
+    if (updates.length) await queryLatestNews.insert(updates)
 
     return updates
 }
@@ -133,19 +134,6 @@ function postDiscordWebhook(webhookUrl, news) {
     }
 }
 
-async function insertPendingNews(queryWebhooks, queryPendingNews, updates) {
-    const webhooks = await queryWebhooks.list()
-    const pendingNews = []
-
-    for (const news of updates) {
-        for (const webhook of webhooks) {
-            pendingNews.push({ ...news, webhookId: webhook.id })
-        }
-    }
-
-    await queryPendingNews.insert(pendingNews)
-}
-
 async function sendPendingNews(queryPendingNews) {
     while (true) {
         const news = await queryPendingNews.getFirst()
@@ -154,13 +142,13 @@ async function sendPendingNews(queryPendingNews) {
         // Retry 5 times
         let success = false
         for (let i = 1; i <= 5; i++) {
+            await new Promise((resolve) => setTimeout(resolve, 1000 * i))
             const res = await postDiscordWebhook(news.webhookUrl, news)
             if (res?.status === 200) {
                 success = true
                 break
             }
             console.error(`Failed to post webhook ${news.webhookUrl}, status code: ${res?.status}`)
-            await new Promise((resolve) => setTimeout(resolve, 1000 * i))
         }
 
         if (!success) {
@@ -168,14 +156,12 @@ async function sendPendingNews(queryPendingNews) {
         }
 
         await queryPendingNews.deleteFirst()
-        await new Promise((resolve) => setTimeout(resolve, 1000))
     }
 }
 
 export default {
     async scheduled(event, env, ctx) {
         const queryLatestNews = query.latestNews(env.TORAM)
-        const queryWebhooks = query.webhooks(env.TORAM)
         const queryPendingNews = query.pendingNews(env.TORAM)
 
         const news = await fetchNews()
@@ -183,7 +169,7 @@ export default {
 
         if (updates.length) {
             await generateFeed(env.FEEDS, queryLatestNews)
-            await insertPendingNews(queryWebhooks, queryPendingNews, updates)
+            await queryPendingNews.insert(updates)
         }
 
         await sendPendingNews(queryPendingNews)

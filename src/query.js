@@ -1,41 +1,36 @@
 const latestNews = (db) => {
-    // Check if the news exists
-    const includes = async (news) => !!(await db.prepare('SELECT * FROM latest_news WHERE link = ?').bind(news.link).first())
-
-    // Batch insert news and keep only the last 10 news
+    // Batch insert news and keep only the latest 10
     const insert = async (news) => {
-        if (!news.length) return
-        const stmti = db.prepare('INSERT INTO latest_news (date, title, link, thumbnail, img) VALUES (?, ?, ?, ?, ?)')
-        const stmtd = db.prepare('DELETE FROM latest_news WHERE id NOT IN (SELECT id FROM latest_news ORDER BY id DESC LIMIT 10)')
-        await db.batch([...news.map((n) => stmti.bind(n.date, n.title, n.link, n.thumbnail || '', n.img || '')), stmtd])
+        const stmts = [
+            db.prepare('INSERT INTO latest_news (date, title, link, thumbnail, img) VALUES (?, ?, ?, ?, ?)'),
+            db.prepare('DELETE FROM latest_news WHERE id NOT IN (SELECT id FROM latest_news ORDER BY id DESC LIMIT 10)'),
+        ]
+        await db.batch([...news.map((n) => stmts[0].bind(n.date, n.title, n.link, n.thumbnail || '', n.img || '')), stmts[1]])
     }
 
     // List all news
     const list = async () => (await db.prepare('SELECT * FROM latest_news ORDER BY id ASC').all()).results
 
     return {
-        includes,
         insert,
         list,
     }
 }
 
-const webhooks = (db) => {
-    // List all webhooks
-    const list = async () => (await db.prepare('SELECT * FROM webhooks ORDER BY id ASC').all()).results
-
-    return {
-        list,
-    }
-}
-
-// News that are pending to be sent to webhooks
+// News that are pending for sending to webhooks
 const pendingNews = (db) => {
-    // Batch insert pending news
-    const insert = async (pendingNews) => {
-        if (!pendingNews.length) return
-        const stmt = db.prepare('INSERT INTO pending_news (webhook_id, date, title, link, thumbnail, img) VALUES (?, ?, ?, ?, ?, ?)')
-        await db.batch(pendingNews.map((n) => stmt.bind(n.webhookId, n.date, n.title, n.link, n.thumbnail || '', n.img || '')))
+    // Batch insert updates with webhook id into pending news
+    const insert = async (updates) => {
+        const stmts = [
+            db.prepare('CREATE TABLE temp_updates (id INTEGER PRIMARY KEY AUTOINCREMENT, date TEXT, title TEXT, link TEXT, thumbnail TEXT, img TEXT)'),
+            db.prepare('INSERT INTO temp_updates (date, title, link, thumbnail, img) VALUES (?, ?, ?, ?, ?)'),
+            db.prepare(
+                'INSERT INTO pending_news (webhook_id, date, title, link, thumbnail, img) SELECT webhooks.id, temp_updates.date, temp_updates.title, temp_updates.link, temp_updates.thumbnail, temp_updates.img FROM temp_updates CROSS JOIN webhooks ORDER BY temp_updates.id ASC'
+            ),
+            db.prepare('DROP TABLE temp_updates'),
+        ]
+
+        await db.batch([stmts[0], ...updates.map((n) => stmts[1].bind(n.date, n.title, n.link, n.thumbnail || '', n.img || '')), stmts[2], stmts[3]])
     }
 
     // Get the first pending news
@@ -58,7 +53,6 @@ const pendingNews = (db) => {
 
 const query = {
     latestNews,
-    webhooks,
     pendingNews,
 }
 
