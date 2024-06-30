@@ -1,5 +1,6 @@
 import { Feed } from 'feed'
 import { parse } from 'node-html-parser'
+import { convert } from 'html-to-text'
 import query from './query'
 
 const baseurl = 'https://tw.toram.jp'
@@ -24,13 +25,13 @@ async function fetchNews() {
     for (const newsNode of newsNodeList) {
         const date = newsNode.querySelector('time').getAttribute('datetime')
         const title = newsNode.querySelector('p.news_title').text
-        const link = `${baseurl}${newsNode.querySelector('a').getAttribute('href')}`
+        const url = `${baseurl}${newsNode.querySelector('a').getAttribute('href')}`
         const thumbnail = newsNode.querySelector('img').getAttribute('src')
 
         news.push({
             date,
             title,
-            link,
+            url,
             thumbnail,
         })
     }
@@ -39,44 +40,118 @@ async function fetchNews() {
     return news
 }
 
-async function fetchNewsImage(link) {
-    await new Promise((resolve) => setTimeout(resolve, 1000))
+async function fetchNewsContent(news) {
+    const embeds = [
+        {
+            title: news.title,
+            url: news.url,
+            thumbnail: { url: news.thumbnail },
+        },
+    ]
 
     try {
-        const response = await fetch(link, { headers })
-        if (response.status !== 200) return undefined
+        const response = await fetch(news.url, { headers })
+
+        if (response.status !== 200) {
+            throw new Error(`Failed to fetch ${news.url}, status code: ${response.status}`)
+        }
 
         const content = await response.text()
         const root = parse(content)
-        const img = root.querySelector('div.useBox.newsBox')?.querySelector('img')?.getAttribute('src')
+        const newsBox = root.querySelector('div.useBox.newsBox')
+        const children = newsBox.childNodes.slice(
+            newsBox.childNodes.findIndex((child) => child.classList?.contains('smallTitleLine')) + 1,
+            newsBox.childNodes.findIndex((child) => child.classList?.contains('deluxetitle') && child.text === '注意事項')
+        )
 
-        return img
+        const sections = [[null]]
+
+        for (const child of children) {
+            if (child.text === '回頁面頂端') continue
+
+            if (child.classList?.contains('deluxetitle') && child.id) {
+                sections.push([child])
+            } else {
+                sections[sections.length - 1].push(child)
+            }
+        }
+
+        for (const [head, ...contents] of sections) {
+            const title = head?.text || news.title
+            const url = head === null ? news.url : `${news.url}#${head.id}`
+            const section = parse(contents.join(''))
+            const images = section.querySelectorAll('img')
+            const image = images.shift()
+            const description = convert(section.toString(), {
+                wordwrap: false,
+                selectors: [
+                    { selector: 'a', options: { baseUrl: 'https:', linkBrackets: false } },
+                    { selector: 'hr', format: 'skip' },
+                    { selector: 'img', format: 'skip' },
+                    { selector: 'table', format: 'dataTable' },
+                ],
+            }).replace(/\n{3,}/g, '\n\n')
+
+            if (head === null) {
+                embeds[0] = {
+                    ...embeds[0],
+                    description,
+                    image: {
+                        url: image?.getAttribute('src'),
+                    },
+                }
+            } else {
+                embeds.push({
+                    title,
+                    url,
+                    description,
+                    image: {
+                        url: image?.getAttribute('src'),
+                    },
+                })
+            }
+
+            for (const image of images) {
+                embeds.push({
+                    url,
+                    image: {
+                        url: image.getAttribute('src'),
+                    },
+                })
+            }
+        }
     } catch (error) {
         console.error(error)
-        return undefined
     }
+
+    return embeds
 }
 
-async function updateLatestNews(queryLatestNews, news) {
+async function checkNewsUpdates(queryLatestNews, news) {
     const latestNews = await queryLatestNews.list()
-    const latestNewsLinks = latestNews.map((n) => n.link)
+    const latestNewsUrls = latestNews.map((n) => n.url)
     const updates = []
 
     // Check for updates
     for (const item of news) {
-        if (!latestNewsLinks.includes(item.link)) {
-            item.img = await fetchNewsImage(item.link)
-            updates.push(item)
-        } else break
+        if (latestNewsUrls.includes(item.url)) break
+        else updates.push(item)
     }
 
     // Oldest first
-    updates.reverse()
+    return updates.reverse()
+}
 
-    // Update latest news
-    if (updates.length) await queryLatestNews.insert(updates)
+async function generateNewsEmbeds(updates) {
+    const newsEmbeds = []
 
-    return updates
+    for (const news of updates) {
+        const embeds = await fetchNewsContent(news)
+        newsEmbeds.push(embeds)
+        await new Promise((resolve) => setTimeout(resolve, 1000))
+    }
+
+    return newsEmbeds
 }
 
 async function generateFeed(kv, queryLatestNews) {
@@ -96,8 +171,8 @@ async function generateFeed(kv, queryLatestNews) {
     for (const item of news) {
         feed.addItem({
             title: item.title,
-            id: item.link,
-            link: item.link,
+            id: item.url,
+            link: item.url,
             date: new Date(item.date),
             image: item.img,
         })
@@ -106,27 +181,16 @@ async function generateFeed(kv, queryLatestNews) {
     await kv.put('/toram', feed.rss2())
 }
 
-function postDiscordWebhook(webhookUrl, news) {
+function postDiscordWebhook(news) {
+    const { webhookUrl, body } = news
+
     try {
         return fetch(`${webhookUrl}?wait=true`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
             },
-            body: JSON.stringify({
-                embeds: [
-                    {
-                        title: `[${news.date}] ${news.title}`,
-                        url: news.link,
-                        image: {
-                            url: news.img || undefined,
-                        },
-                        thumbnail: {
-                            url: news.thumbnail || undefined,
-                        },
-                    },
-                ],
-            }),
+            body,
         })
     } catch (error) {
         console.error(error)
@@ -143,7 +207,7 @@ async function sendPendingNews(queryPendingNews) {
         let success = false
         for (let i = 1; i <= 5; i++) {
             await new Promise((resolve) => setTimeout(resolve, 1000 * i))
-            const res = await postDiscordWebhook(news.webhookUrl, news)
+            const res = await postDiscordWebhook(news)
             if (res?.status === 200) {
                 success = true
                 break
@@ -165,11 +229,13 @@ export default {
         const queryPendingNews = query.pendingNews(env.TORAM)
 
         const news = await fetchNews()
-        const updates = await updateLatestNews(queryLatestNews, news)
+        const updates = await checkNewsUpdates(queryLatestNews, news)
 
         if (updates.length) {
+            const newsEmbeds = await generateNewsEmbeds(updates)
+            await queryLatestNews.insert(newsEmbeds, updates)
+            await queryPendingNews.insert(newsEmbeds)
             await generateFeed(env.FEEDS, queryLatestNews)
-            await queryPendingNews.insert(updates)
         }
 
         await sendPendingNews(queryPendingNews)

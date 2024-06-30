@@ -6,7 +6,7 @@ CREATE TABLE IF NOT EXISTS latest_news (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     date TEXT NOT NULL,
     title TEXT NOT NULL,
-    link TEXT NOT NULL,
+    url TEXT NOT NULL,
     thumbnail TEXT NOT NULL,
     img TEXT NOT NULL
 );
@@ -19,10 +19,6 @@ CREATE TABLE IF NOT EXISTS webhooks (
 CREATE TABLE IF NOT EXISTS pending_news (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     webhook_id INTEGER NOT NULL,
-    date TEXT NOT NULL,
-    title TEXT NOT NULL,
-    link TEXT NOT NULL,
-    thumbnail TEXT NOT NULL,
-    img TEXT NOT NULL,
+    body TEXT NOT NULL,
     FOREIGN KEY (webhook_id) REFERENCES webhooks(id) ON DELETE CASCADE
 );
