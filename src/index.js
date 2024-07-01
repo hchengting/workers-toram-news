@@ -7,7 +7,7 @@ const baseurl = 'https://tw.toram.jp'
 const path = '/information/?type_code=all'
 const url = `${baseurl}${path}`
 const headers = {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36 Edg/125.0.0.0',
+    'User-Agent': 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36',
 }
 
 async function fetchNews() {
@@ -88,6 +88,7 @@ async function fetchNewsContent(news) {
                     { selector: 'a', options: { baseUrl: 'https:', linkBrackets: false } },
                     { selector: 'hr', format: 'skip' },
                     { selector: 'img', format: 'skip' },
+                    { selector: 'button', format: 'skip' },
                     { selector: 'table', format: 'dataTable' },
                 ],
             }).replace(/\n{3,}/g, '\n\n')
@@ -129,13 +130,15 @@ async function fetchNewsContent(news) {
 
 async function checkNewsUpdates(queryLatestNews, news) {
     const latestNews = await queryLatestNews.list()
+    const latestNewsTitles = latestNews.map((n) => n.title)
     const latestNewsUrls = latestNews.map((n) => n.url)
     const updates = []
 
     // Check for updates
     for (const item of news) {
-        if (latestNewsUrls.includes(item.url)) break
-        else updates.push(item)
+        if (!latestNewsTitles.includes(item.title) || !latestNewsUrls.includes(item.url)) {
+            updates.push(item)
+        }
     }
 
     // Oldest first
