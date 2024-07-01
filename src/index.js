@@ -236,7 +236,7 @@ export default {
 
         if (updates.length) {
             const newsEmbeds = await generateNewsEmbeds(updates)
-            await queryLatestNews.insert(newsEmbeds, updates)
+            await queryLatestNews.insert(updates, newsEmbeds)
             await queryPendingNews.insert(newsEmbeds)
             await generateFeed(env.FEEDS, queryLatestNews)
         }
