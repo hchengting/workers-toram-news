@@ -41,88 +41,63 @@ async function fetchNews() {
 }
 
 async function fetchNewsContent(news) {
-    const embeds = [
-        {
-            title: news.title,
-            url: news.url,
-            thumbnail: { url: news.thumbnail },
-        },
-    ]
+    const embeds = []
+    const response = await fetch(news.url, { headers })
 
-    try {
-        const response = await fetch(news.url, { headers })
+    if (response.status !== 200) {
+        throw new Error(`Failed to fetch ${news.url}, status code: ${response.status}`)
+    }
 
-        if (response.status !== 200) {
-            throw new Error(`Failed to fetch ${news.url}, status code: ${response.status}`)
+    const content = await response.text()
+    const root = parse(content)
+    const newsBox = root.querySelector('div.useBox.newsBox')
+    const children = newsBox.childNodes.slice(
+        newsBox.childNodes.findIndex((child) => child.classList?.contains('smallTitleLine')) + 1,
+        newsBox.childNodes.findIndex((child) => child.classList?.contains('deluxetitle') && child.text === '注意事項')
+    )
+
+    const sections = [[null]]
+
+    for (const child of children) {
+        if (child.text === '回頁面頂端') continue
+
+        if (child.classList?.contains('deluxetitle') && child.id) {
+            sections.push([child])
+        } else {
+            sections[sections.length - 1].push(child)
         }
+    }
 
-        const content = await response.text()
-        const root = parse(content)
-        const newsBox = root.querySelector('div.useBox.newsBox')
-        const children = newsBox.childNodes.slice(
-            newsBox.childNodes.findIndex((child) => child.classList?.contains('smallTitleLine')) + 1,
-            newsBox.childNodes.findIndex((child) => child.classList?.contains('deluxetitle') && child.text === '注意事項')
-        )
+    for (const [head, ...contents] of sections) {
+        const title = head === null ? news.title : head.text
+        const url = head === null ? news.url : `${news.url}#${head.id}`
+        const thumbnail = head === null ? { url: news.thumbnail } : undefined
 
-        const sections = [[null]]
+        const section = parse(contents.join(''))
+        const description = convert(section.toString(), {
+            wordwrap: false,
+            selectors: [
+                { selector: 'a', options: { baseUrl: 'https:', linkBrackets: false } },
+                { selector: 'hr', format: 'skip' },
+                { selector: 'img', format: 'skip' },
+                { selector: 'button', format: 'skip' },
+                { selector: 'table', format: 'dataTable' },
+            ],
+        }).replace(/\n{3,}/g, '\n\n')
 
-        for (const child of children) {
-            if (child.text === '回頁面頂端') continue
+        const images = section.querySelectorAll('img').map((img) => ({ url: img.getAttribute('src') }))
 
-            if (child.classList?.contains('deluxetitle') && child.id) {
-                sections.push([child])
-            } else {
-                sections[sections.length - 1].push(child)
-            }
+        embeds.push({
+            title,
+            url,
+            description,
+            thumbnail,
+            image: images.shift(),
+        })
+
+        for (const image of images) {
+            embeds.push({ url, image })
         }
-
-        for (const [head, ...contents] of sections) {
-            const title = head?.text || news.title
-            const url = head === null ? news.url : `${news.url}#${head.id}`
-            const section = parse(contents.join(''))
-            const images = section.querySelectorAll('img')
-            const image = images.shift()
-            const description = convert(section.toString(), {
-                wordwrap: false,
-                selectors: [
-                    { selector: 'a', options: { baseUrl: 'https:', linkBrackets: false } },
-                    { selector: 'hr', format: 'skip' },
-                    { selector: 'img', format: 'skip' },
-                    { selector: 'button', format: 'skip' },
-                    { selector: 'table', format: 'dataTable' },
-                ],
-            }).replace(/\n{3,}/g, '\n\n')
-
-            if (head === null) {
-                embeds[0] = {
-                    ...embeds[0],
-                    description,
-                    image: {
-                        url: image?.getAttribute('src'),
-                    },
-                }
-            } else {
-                embeds.push({
-                    title,
-                    url,
-                    description,
-                    image: {
-                        url: image?.getAttribute('src'),
-                    },
-                })
-            }
-
-            for (const image of images) {
-                embeds.push({
-                    url,
-                    image: {
-                        url: image.getAttribute('src'),
-                    },
-                })
-            }
-        }
-    } catch (error) {
-        console.error(error)
     }
 
     return embeds
@@ -130,19 +105,14 @@ async function fetchNewsContent(news) {
 
 async function checkNewsUpdates(queryLatestNews, news) {
     const latestNews = await queryLatestNews.list()
-    const latestNewsTitles = latestNews.map((n) => n.title)
-    const latestNewsUrls = latestNews.map((n) => n.url)
-    const updates = []
+    const latestNewsTitles = new Set(latestNews.map((n) => n.title))
+    const latestNewsUrls = new Set(latestNews.map((n) => n.url))
 
     // Check for updates
-    for (const item of news) {
-        if (!latestNewsTitles.includes(item.title) || !latestNewsUrls.includes(item.url)) {
-            updates.push(item)
-        }
-    }
+    const updates = news.filter((item) => !latestNewsTitles.has(item.title) || !latestNewsUrls.has(item.url)).reverse()
 
     // Oldest first
-    return updates.reverse()
+    return updates
 }
 
 async function generateNewsEmbeds(updates) {
@@ -190,9 +160,7 @@ function postDiscordWebhook(news) {
     try {
         return fetch(`${webhookUrl}?wait=true`, {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
+            headers: { 'Content-Type': 'application/json' },
             body,
         })
     } catch (error) {
@@ -236,7 +204,7 @@ export default {
 
         if (updates.length) {
             const newsEmbeds = await generateNewsEmbeds(updates)
-            await queryLatestNews.insert(newsEmbeds, updates)
+            await queryLatestNews.insert(updates, newsEmbeds)
             await queryPendingNews.insert(newsEmbeds)
             await generateFeed(env.FEEDS, queryLatestNews)
         }

@@ -1,14 +1,17 @@
 const latestNews = (db) => {
     // Batch insert news and keep only the latest 10
-    const insert = async (newsEmbeds, updates) => {
-        const news = newsEmbeds.map((embeds, idx) => ({ date: updates[idx].date, ...embeds[0] }))
+    const insert = async (updates, newsEmbeds) => {
+        const imgs = newsEmbeds.map((embeds) => embeds.find((embed) => embed.image?.url)?.image?.url)
+        const news = updates.map((update, idx) => ({ ...update, img: imgs[idx] || '' }))
 
         const stmts = [
-            db.prepare('INSERT INTO latest_news (date, title, url, thumbnail, img) VALUES (?, ?, ?, ?, ?) ON CONFLICT(url) DO UPDATE SET date = excluded.date, title = excluded.title, thumbnail = excluded.thumbnail, img = excluded.img'),
+            db.prepare(
+                'INSERT INTO latest_news (date, title, url, thumbnail, img) VALUES (?, ?, ?, ?, ?) ON CONFLICT(url) DO UPDATE SET date = excluded.date, title = excluded.title, thumbnail = excluded.thumbnail, img = excluded.img'
+            ),
             db.prepare('DELETE FROM latest_news WHERE id NOT IN (SELECT id FROM latest_news ORDER BY id DESC LIMIT 10)'),
         ]
 
-        await db.batch([...news.map((n) => stmts[0].bind(n.date, n.title, n.url, n.thumbnail?.url || '', n.image?.url || '')), stmts[1]])
+        await db.batch([...news.map((n) => stmts[0].bind(n.date, n.title, n.url, n.thumbnail, n.img)), stmts[1]])
     }
 
     // List all news
