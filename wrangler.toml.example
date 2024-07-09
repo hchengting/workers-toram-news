@@ -13,7 +13,3 @@ crons = ["*/5 * * * *"]
 binding = "TORAM"
 database_name = "toram"
 database_id = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
-
-[[kv_namespaces]]
-binding = "FEEDS"
-id = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"

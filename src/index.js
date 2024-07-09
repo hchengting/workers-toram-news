@@ -1,10 +1,9 @@
-import { Feed } from 'feed'
 import { parse } from 'node-html-parser'
 import { convert } from 'html-to-text'
 import query from './query'
 
 const baseurl = 'https://tw.toram.jp'
-const path = '/information/?type_code=all'
+const path = '/information'
 const url = `${baseurl}${path}`
 const headers = {
     'User-Agent': 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36',
@@ -23,20 +22,17 @@ async function fetchNews() {
     const newsNodeList = root.querySelectorAll('div.useBox > ul > li.news_border')
 
     for (const newsNode of newsNodeList) {
-        const date = newsNode.querySelector('time').getAttribute('datetime')
         const title = newsNode.querySelector('p.news_title').text
         const url = `${baseurl}${newsNode.querySelector('a').getAttribute('href')}`
         const thumbnail = newsNode.querySelector('img').getAttribute('src')
 
-        news.push({
-            date,
+        news.unshift({
             title,
             url,
             thumbnail,
         })
     }
 
-    // Newest first
     return news
 }
 
@@ -90,8 +86,8 @@ async function fetchNewsContent(news) {
         embeds.push({
             title,
             url,
-            description,
             thumbnail,
+            description,
             image: images.shift(),
         })
 
@@ -103,16 +99,18 @@ async function fetchNewsContent(news) {
     return embeds
 }
 
-async function checkNewsUpdates(queryLatestNews, news) {
+async function checkNewsDifference(queryLatestNews, news) {
     const latestNews = await queryLatestNews.list()
-    const latestNewsTitles = new Set(latestNews.map((n) => n.title))
-    const latestNewsUrls = new Set(latestNews.map((n) => n.url))
+    const latestNewsSet = new Set(latestNews.map((n) => JSON.stringify(n)))
+    const newsSet = new Set(news.map((n) => JSON.stringify(n)))
 
-    // Check for updates
-    const updates = news.filter((item) => !latestNewsTitles.has(item.title) || !latestNewsUrls.has(item.url)).reverse()
+    const deletions = [...latestNewsSet.difference(newsSet)].map((n) => JSON.parse(n))
+    const updates = [...newsSet.difference(latestNewsSet)].map((n) => JSON.parse(n))
 
-    // Oldest first
-    return updates
+    return {
+        deletions,
+        updates,
+    }
 }
 
 async function generateNewsEmbeds(updates) {
@@ -125,33 +123,6 @@ async function generateNewsEmbeds(updates) {
     }
 
     return newsEmbeds
-}
-
-async function generateFeed(kv, queryLatestNews) {
-    const news = (await queryLatestNews.list()).reverse()
-
-    const feed = new Feed({
-        title: '托蘭異世錄官網 - Toram Online -',
-        description: '托蘭異世錄官網 - Toram Online - 公告',
-        id: url,
-        link: url,
-        language: 'zh-TW',
-        image: `${baseurl}/favicon.ico`,
-        favicon: `${baseurl}/favicon.ico`,
-        updated: new Date(),
-    })
-
-    for (const item of news) {
-        feed.addItem({
-            title: item.title,
-            id: item.url,
-            link: item.url,
-            date: new Date(item.date),
-            image: item.img,
-        })
-    }
-
-    await kv.put('/toram', feed.rss2())
 }
 
 function postDiscordWebhook(news) {
@@ -177,7 +148,7 @@ async function sendPendingNews(queryPendingNews) {
         // Retry 5 times
         let success = false
         for (let i = 1; i <= 5; i++) {
-            await new Promise((resolve) => setTimeout(resolve, 1000 * i))
+            await new Promise((resolve) => setTimeout(resolve, 2000 * i))
             const res = await postDiscordWebhook(news)
             if (res?.status === 200) {
                 success = true
@@ -200,13 +171,12 @@ export default {
         const queryPendingNews = query.pendingNews(env.TORAM)
 
         const news = await fetchNews()
-        const updates = await checkNewsUpdates(queryLatestNews, news)
+        const { deletions, updates } = await checkNewsDifference(queryLatestNews, news)
 
         if (updates.length) {
             const newsEmbeds = await generateNewsEmbeds(updates)
-            await queryLatestNews.insert(updates, newsEmbeds)
             await queryPendingNews.insert(newsEmbeds)
-            await generateFeed(env.FEEDS, queryLatestNews)
+            await queryLatestNews.update(deletions, updates)
         }
 
         await sendPendingNews(queryPendingNews)

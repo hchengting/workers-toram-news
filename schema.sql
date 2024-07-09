@@ -4,11 +4,9 @@ DROP TABLE IF EXISTS pending_news;
 
 CREATE TABLE IF NOT EXISTS latest_news (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    date TEXT NOT NULL,
     title TEXT NOT NULL,
-    url TEXT NOT NULL UNIQUE,
-    thumbnail TEXT NOT NULL,
-    img TEXT NOT NULL
+    url TEXT NOT NULL,
+    thumbnail TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS webhooks (

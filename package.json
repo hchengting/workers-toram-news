@@ -9,7 +9,6 @@
     "start": "wrangler dev --test-scheduled"
   },
   "dependencies": {
-    "feed": "^4.2.2",
     "html-to-text": "^9.0.5",
     "node-html-parser": "^6.1.13"
   },

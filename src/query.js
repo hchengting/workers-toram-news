@@ -1,24 +1,19 @@
 const latestNews = (db) => {
-    // Batch insert news and keep only the latest 10
-    const insert = async (updates, newsEmbeds) => {
-        const imgs = newsEmbeds.map((embeds) => embeds.find((embed) => embed.image?.url)?.image?.url)
-        const news = updates.map((update, idx) => ({ ...update, img: imgs[idx] || '' }))
-
+    // Batch delete old news and insert updates
+    const update = async (deletions, updates) => {
         const stmts = [
-            db.prepare(
-                'INSERT INTO latest_news (date, title, url, thumbnail, img) VALUES (?, ?, ?, ?, ?) ON CONFLICT(url) DO UPDATE SET date = excluded.date, title = excluded.title, thumbnail = excluded.thumbnail, img = excluded.img'
-            ),
-            db.prepare('DELETE FROM latest_news WHERE id NOT IN (SELECT id FROM latest_news ORDER BY id DESC LIMIT 10)'),
+            db.prepare('DELETE FROM latest_news WHERE url = ?'),
+            db.prepare('INSERT INTO latest_news (title, url, thumbnail) VALUES (?, ?, ?)'),
         ]
 
-        await db.batch([...news.map((n) => stmts[0].bind(n.date, n.title, n.url, n.thumbnail, n.img)), stmts[1]])
+        await db.batch([...deletions.map((n) => stmts[0].bind(n.url)), ...updates.map((n) => stmts[1].bind(n.title, n.url, n.thumbnail))])
     }
 
     // List all news
-    const list = async () => (await db.prepare('SELECT * FROM latest_news ORDER BY id ASC').all()).results
+    const list = async () => (await db.prepare('SELECT title, url, thumbnail FROM latest_news ORDER BY id ASC').all()).results
 
     return {
-        insert,
+        update,
         list,
     }
 }
@@ -39,7 +34,9 @@ const pendingNews = (db) => {
         const stmts = [
             db.prepare('CREATE TABLE news (id INTEGER PRIMARY KEY AUTOINCREMENT, body TEXT)'),
             db.prepare('INSERT INTO news (body) VALUES (?)'),
-            db.prepare('INSERT INTO pending_news (webhook_id, body) SELECT webhooks.id, news.body FROM news CROSS JOIN webhooks ORDER BY news.id ASC'),
+            db.prepare(
+                'INSERT INTO pending_news (webhook_id, body) SELECT webhooks.id, news.body FROM news CROSS JOIN webhooks ORDER BY news.id ASC'
+            ),
             db.prepare('DROP TABLE news'),
         ]
 
@@ -55,7 +52,9 @@ const pendingNews = (db) => {
     }
 
     // Delete the first pending news
-    const deleteFirst = async () => await db.prepare('DELETE FROM pending_news WHERE id = (SELECT id FROM pending_news ORDER BY id ASC LIMIT 1)').run()
+    const deleteFirst = async () => {
+        await db.prepare('DELETE FROM pending_news WHERE id = (SELECT id FROM pending_news ORDER BY id ASC LIMIT 1)').run()
+    }
 
     return {
         insert,
