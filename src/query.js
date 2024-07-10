@@ -1,5 +1,5 @@
 const latestNews = (db) => {
-    // Batch delete old news and insert updates
+    // Delete old news and insert updates
     const update = async (deletions, updates) => {
         const stmts = [
             db.prepare('DELETE FROM latest_news WHERE url = ?'),
@@ -18,19 +18,10 @@ const latestNews = (db) => {
     }
 }
 
-// News that are pending for sending to webhooks
+// News to be sent to webhooks
 const pendingNews = (db) => {
-    // For Discord webhook limit
-    function* chunks(arr, n) {
-        for (let i = 0; i < arr.length; i += n) {
-            yield arr.slice(i, i + n)
-        }
-    }
-
-    // Batch insert webhook id and body
+    // Insert news into temp table and cross join with webhooks
     const insert = async (newsEmbeds) => {
-        newsEmbeds = newsEmbeds.flatMap((embeds) => [...chunks(embeds, 10)])
-
         const stmts = [
             db.prepare('CREATE TABLE news (id INTEGER PRIMARY KEY AUTOINCREMENT, body TEXT)'),
             db.prepare('INSERT INTO news (body) VALUES (?)'),

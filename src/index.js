@@ -122,7 +122,14 @@ async function generateNewsEmbeds(updates) {
         await new Promise((resolve) => setTimeout(resolve, 1000))
     }
 
-    return newsEmbeds
+    function* chunks(arr, n) {
+        for (let i = 0; i < arr.length; i += n) {
+            yield arr.slice(i, i + n)
+        }
+    }
+
+    // Split embeds into chunks of 10 for Discord webhook limit
+    return newsEmbeds.flatMap((embeds) => [...chunks(embeds, 10)])
 }
 
 function postDiscordWebhook(news) {
