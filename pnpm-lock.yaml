@@ -14,6 +14,9 @@ importers:
       discord-api-types:
         specifier: ^0.37.92
         version: 0.37.92
+      discord-interactions:
+        specifier: ^4.0.0
+        version: 4.0.0
       html-to-text:
         specifier: ^9.0.5
         version: 9.0.5
@@ -330,6 +333,10 @@ packages:
 
   discord-api-types@0.37.92:
     resolution: {integrity: sha512-7xnedbQRLRef/O+4jKPyIFwl6YqoyihOG3OSneiRmVJMBk30ph2YuZGcHjeX1Kk/a3yQWeyCKe4RZJB3iECcxg==}
+
+  discord-interactions@4.0.0:
+    resolution: {integrity: sha512-27HSJ379W9E4T6Or+efQRGnekJ6g8kYokSFtK5HKc/3ObC+83O+vxdg2trStD/2XPIHVPMNVIoZAeK9s/EL8Yg==}
+    engines: {node: '>=18.4.0'}
 
   dom-serializer@2.0.0:
     resolution: {integrity: sha512-wIkAryiqt/nV5EQKqQpo3SToSOV9J0DnbJqwK7Wv/Trc92zIAYZ4FlMu+JPFW1DfGFt81ZTCGgDEabffXeLyJg==}
@@ -816,6 +823,8 @@ snapshots:
   discord-api-types@0.37.83: {}
 
   discord-api-types@0.37.92: {}
+
+  discord-interactions@4.0.0: {}
 
   dom-serializer@2.0.0:
     dependencies:

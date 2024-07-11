@@ -6,11 +6,15 @@ const latestNews = (db) => {
             db.prepare('INSERT INTO latest_news (title, url, thumbnail) VALUES (?, ?, ?)'),
         ]
 
-        await db.batch([...deletions.map((n) => stmts[0].bind(n.url)), ...updates.map((n) => stmts[1].bind(n.title, n.url, n.thumbnail))])
+        await db.batch([
+            ...deletions.map((n) => stmts[0].bind(n.url)),
+            ...updates.map((n) => stmts[1].bind(n.title, n.url, n.thumbnail)),
+        ])
     }
 
     // List all news
-    const list = async () => (await db.prepare('SELECT title, url, thumbnail FROM latest_news ORDER BY id ASC').all()).results
+    const list = async () =>
+        (await db.prepare('SELECT title, url, thumbnail FROM latest_news ORDER BY id ASC').all()).results
 
     return {
         update,
@@ -31,20 +35,25 @@ const pendingNews = (db) => {
             db.prepare('DROP TABLE news'),
         ]
 
-        await db.batch([stmts[0], ...newsEmbeds.map((embeds) => stmts[1].bind(JSON.stringify({ embeds }))), stmts[2], stmts[3]])
+        await db.batch([
+            stmts[0],
+            ...newsEmbeds.map((embeds) => stmts[1].bind(JSON.stringify({ embeds }))),
+            stmts[2],
+            stmts[3],
+        ])
     }
 
     // Get the first pending news
     const getFirst = async () => {
-        const stmt = db.prepare(
-            'SELECT channel_id AS channelId, body FROM pending_news ORDER BY id ASC LIMIT 1'
-        )
+        const stmt = db.prepare('SELECT channel_id AS channelId, body FROM pending_news ORDER BY id ASC LIMIT 1')
         return await stmt.first()
     }
 
     // Delete the first pending news
     const deleteFirst = async () => {
-        await db.prepare('DELETE FROM pending_news WHERE id = (SELECT id FROM pending_news ORDER BY id ASC LIMIT 1)').run()
+        await db
+            .prepare('DELETE FROM pending_news WHERE id = (SELECT id FROM pending_news ORDER BY id ASC LIMIT 1)')
+            .run()
     }
 
     return {
@@ -54,9 +63,20 @@ const pendingNews = (db) => {
     }
 }
 
+const channels = (db) => {
+    const subscribe = async (id) => await db.prepare('INSERT OR IGNORE INTO channels (id) VALUES (?)').bind(id).run()
+    const unsubscribe = async (id) => await db.prepare('DELETE FROM channels WHERE id = ?').bind(id).run()
+
+    return {
+        subscribe,
+        unsubscribe,
+    }
+}
+
 const query = {
     latestNews,
     pendingNews,
+    channels,
 }
 
 export default query

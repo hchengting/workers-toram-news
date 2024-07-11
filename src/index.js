@@ -1,14 +1,17 @@
-import { parse } from 'node-html-parser'
-import { convert } from 'html-to-text'
+import { InteractionResponseType, InteractionType, verifyKey } from 'discord-interactions'
 import { REST } from '@discordjs/rest'
 import { Routes } from 'discord-api-types/v10'
+import { parse } from 'node-html-parser'
+import { convert } from 'html-to-text'
 import query from './query'
+import command from './commands'
 
 const baseurl = 'https://tw.toram.jp'
 const path = '/information'
 const url = `${baseurl}${path}`
 const headers = {
-    'User-Agent': 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36',
+    'User-Agent':
+        'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36',
 }
 
 async function fetchNews() {
@@ -135,7 +138,7 @@ async function generateNewsEmbeds(updates) {
 }
 
 async function sendPendingNews(queryPendingNews, token) {
-    const rest = new REST({ version: '10' }).setToken(token)
+    const rest = new REST({ rejectOnRateLimit: ['/channels'] }).setToken(token)
 
     while (true) {
         const news = await queryPendingNews.getFirst()
@@ -150,6 +153,42 @@ async function sendPendingNews(queryPendingNews, token) {
         await queryPendingNews.deleteFirst()
         await new Promise((resolve) => setTimeout(resolve, 1000))
     }
+}
+
+function InteractionResponse(data) {
+    return new Response(JSON.stringify(data), {
+        headers: {
+            'content-type': 'application/json;charset=UTF-8',
+        },
+    })
+}
+
+async function handleInteraction(request, env) {
+    const interaction = await request.json()
+    const queryChannels = query.channels(env.TORAM)
+
+    if (interaction.type === InteractionType.PING) {
+        return InteractionResponse({ type: InteractionResponseType.PONG })
+    }
+
+    if (interaction.type === InteractionType.APPLICATION_COMMAND) {
+        switch (interaction.data.name) {
+            case command.SUBSCRIBE.name:
+                await queryChannels.subscribe(interaction.channel_id)
+                return InteractionResponse({
+                    type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+                    data: { content: '訂閱成功！' },
+                })
+            case command.UNSUBSCRIBE.name:
+                await queryChannels.unsubscribe(interaction.channel_id)
+                return InteractionResponse({
+                    type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+                    data: { content: '取消訂閱成功！' },
+                })
+        }
+    }
+
+    return new Response('Bad request.', { status: 400 })
 }
 
 export default {
@@ -167,5 +206,22 @@ export default {
         }
 
         await sendPendingNews(queryPendingNews, env.DISCORD_BOT_TOKEN)
+    },
+    async fetch(request, env, ctx) {
+        // Handle Discord interactions
+        if (request.method === 'POST') {
+            const signature = request.headers.get('x-signature-ed25519')
+            const timestamp = request.headers.get('x-signature-timestamp')
+            const body = await request.clone().arrayBuffer()
+            const isValidRequest = await verifyKey(body, signature, timestamp, env.DISCORD_PUBLIC_KEY)
+
+            if (!isValidRequest) {
+                return new Response('Bad request signature.', { status: 401 })
+            }
+
+            return handleInteraction(request, env)
+        } else {
+            return new Response('Method Not Allowed.', { status: 405 })
+        }
     },
 }
