@@ -18,15 +18,15 @@ const latestNews = (db) => {
     }
 }
 
-// News to be sent to webhooks
+// News to be sent to discord channels
 const pendingNews = (db) => {
-    // Insert news into temp table and cross join with webhooks
+    // Insert news into temp table and cross join with channels
     const insert = async (newsEmbeds) => {
         const stmts = [
             db.prepare('CREATE TABLE news (id INTEGER PRIMARY KEY AUTOINCREMENT, body TEXT)'),
             db.prepare('INSERT INTO news (body) VALUES (?)'),
             db.prepare(
-                'INSERT INTO pending_news (webhook_id, body) SELECT webhooks.id, news.body FROM news CROSS JOIN webhooks ORDER BY news.id ASC'
+                'INSERT INTO pending_news (channel_id, body) SELECT channels.id, news.body FROM news CROSS JOIN channels ORDER BY news.id ASC'
             ),
             db.prepare('DROP TABLE news'),
         ]
@@ -34,10 +34,10 @@ const pendingNews = (db) => {
         await db.batch([stmts[0], ...newsEmbeds.map((embeds) => stmts[1].bind(JSON.stringify({ embeds }))), stmts[2], stmts[3]])
     }
 
-    // Get the first pending news with webhook url
+    // Get the first pending news
     const getFirst = async () => {
         const stmt = db.prepare(
-            'SELECT p.body, w.url AS webhookUrl FROM (SELECT * FROM pending_news ORDER BY id ASC LIMIT 1) AS p JOIN webhooks AS w ON p.webhook_id = w.id'
+            'SELECT channel_id AS channelId, body FROM pending_news ORDER BY id ASC LIMIT 1'
         )
         return await stmt.first()
     }

@@ -1,10 +1,6 @@
 # Workers Toram News
 
-This worker periodically fetches news from https://tw.toram.jp/information and sends news to Discord channels using webhooks.
-
-Since Cloudflare Workers IPs are shared globally, sending news to Discord channels using webhooks may sometimes result in a 429 response due to too many requests.
-
-Therefore, this worker also stores the pending news to be sent in Cloudflare D1.
+This worker periodically fetches news from https://tw.toram.jp/information and sends news to Discord channels.
 
 ## Prerequisites
 
@@ -47,24 +43,30 @@ database_name = "toram"
 database_id = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
 ```
 
+### Add Discord Bot Token
+
+```bash
+pnpm wrangler secret put DISCORD_BOT_TOKEN
+```
+
 ### Deploy
 
-```
+```bash
 pnpm run deploy
 ```
 
-## Add Discord Webhooks
+## Add Discord Channels
 
 Go to [Cloudflare D1](https://dash.cloudflare.com/?to=/:account/workers/d1).
 
-Click on the table `webhooks`.
+Click on the table `channels`.
 
-![image](https://github.com/hchengting/workers-toram-news/assets/74168694/4dff4438-b514-4c95-9951-c7817225de7c)
+![image](https://github.com/hchengting/workers-toram-news/assets/74168694/42ed4561-15d2-4bbd-964b-4ac399010a1a)
 
 Click `Add data`.
 
-![image](https://github.com/hchengting/workers-toram-news/assets/74168694/6c2b1e03-b78b-4c27-9b19-9af9feabe30b)
+![image](https://github.com/hchengting/workers-toram-news/assets/74168694/7b98e222-123d-422e-a7de-c51c53c0ffd3)
 
-Paste your webhook URL (id could be empty) and click `Save`.
+Paste your channel id and click `Save`.
 
-![image](https://github.com/hchengting/workers-toram-news/assets/74168694/3ff0522b-5daa-44e8-9991-a7d64cfecfb6)
+![image](https://github.com/hchengting/workers-toram-news/assets/74168694/838a0191-012a-4232-b7a1-20089240a7c7)

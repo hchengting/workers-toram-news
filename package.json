@@ -9,6 +9,8 @@
     "start": "wrangler dev --test-scheduled"
   },
   "dependencies": {
+    "@discordjs/rest": "^2.3.0",
+    "discord-api-types": "^0.37.92",
     "html-to-text": "^9.0.5",
     "node-html-parser": "^6.1.13"
   },
