@@ -1,5 +1,7 @@
 import { parse } from 'node-html-parser'
 import { convert } from 'html-to-text'
+import { REST } from '@discordjs/rest'
+import { Routes } from 'discord-api-types/v10'
 import query from './query'
 
 const baseurl = 'https://tw.toram.jp'
@@ -128,47 +130,25 @@ async function generateNewsEmbeds(updates) {
         }
     }
 
-    // Split embeds into chunks of 10 for Discord webhook limit
+    // Split into chunks of 10 for Discord embeds limit
     return newsEmbeds.flatMap((embeds) => [...chunks(embeds, 10)])
 }
 
-function postDiscordWebhook(news) {
-    const { webhookUrl, body } = news
+async function sendPendingNews(queryPendingNews, token) {
+    const rest = new REST({ version: '10' }).setToken(token)
 
-    try {
-        return fetch(`${webhookUrl}?wait=true`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body,
-        })
-    } catch (error) {
-        console.error(error)
-        return undefined
-    }
-}
-
-async function sendPendingNews(queryPendingNews) {
     while (true) {
         const news = await queryPendingNews.getFirst()
         if (!news) break
 
-        // Retry 5 times
-        let success = false
-        for (let i = 1; i <= 5; i++) {
-            await new Promise((resolve) => setTimeout(resolve, 2000 * i))
-            const res = await postDiscordWebhook(news)
-            if (res?.status === 200) {
-                success = true
-                break
-            }
-            console.error(`Failed to post webhook ${news.webhookUrl}, status code: ${res?.status}`)
-        }
-
-        if (!success) {
-            throw new Error(`Failed to post webhook ${news.webhookUrl}`)
-        }
+        await rest.post(Routes.channelMessages(news.channelId), {
+            body: news.body,
+            headers: { 'Content-Type': 'application/json' },
+            passThroughBody: true,
+        })
 
         await queryPendingNews.deleteFirst()
+        await new Promise((resolve) => setTimeout(resolve, 1000))
     }
 }
 
@@ -186,6 +166,6 @@ export default {
             await queryLatestNews.update(deletions, updates)
         }
 
-        await sendPendingNews(queryPendingNews)
+        await sendPendingNews(queryPendingNews, env.DISCORD_BOT_TOKEN)
     },
 }
