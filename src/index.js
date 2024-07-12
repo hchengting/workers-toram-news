@@ -83,6 +83,7 @@ async function fetchNewsContent(news) {
                 { selector: 'img', format: 'skip' },
                 { selector: 'button', format: 'skip' },
                 { selector: 'table', format: 'dataTable' },
+                { selector: 'details', format: 'blockString', options: { string: '點擊連結查看詳情' } },
             ],
         }).replace(/\n{3,}/g, '\n\n')
 
@@ -137,28 +138,36 @@ async function generateNewsEmbeds(updates) {
     return newsEmbeds.flatMap((embeds) => [...chunks(embeds, 10)])
 }
 
-async function sendPendingNews(queryPendingNews, token) {
+async function sendPendingNews(queryPendingNews, queryChannels, token) {
     const rest = new REST({ rejectOnRateLimit: ['/channels'] }).setToken(token)
 
     while (true) {
         const news = await queryPendingNews.getFirst()
         if (!news) break
 
-        await rest.post(Routes.channelMessages(news.channelId), {
-            body: news.body,
-            headers: { 'Content-Type': 'application/json' },
-            passThroughBody: true,
-        })
-
-        await queryPendingNews.deleteFirst()
-        await new Promise((resolve) => setTimeout(resolve, 1000))
+        try {
+            await rest.post(Routes.channelMessages(news.channelId), {
+                body: news.body,
+                headers: { 'content-type': 'application/json' },
+                passThroughBody: true,
+            })
+            await queryPendingNews.deleteFirst()
+            await new Promise((resolve) => setTimeout(resolve, 1000))
+        } catch (error) {
+            // Handle 50001: Missing Access, 10003: Unknown Channel
+            if (error.code === 50001 || error.code === 10003) {
+                await queryChannels.unsubscribe(news.channelId)
+            } else {
+                throw error
+            }
+        }
     }
 }
 
 function InteractionResponse(data) {
     return new Response(JSON.stringify(data), {
         headers: {
-            'content-type': 'application/json;charset=UTF-8',
+            'content-type': 'application/json',
         },
     })
 }
@@ -174,17 +183,31 @@ async function handleInteraction(request, env) {
     if (interaction.type === InteractionType.APPLICATION_COMMAND) {
         switch (interaction.data.name) {
             case command.SUBSCRIBE.name:
-                await queryChannels.subscribe(interaction.channel_id)
-                return InteractionResponse({
-                    type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-                    data: { content: '訂閱成功！' },
-                })
+                if (await queryChannels.get(interaction.channel_id)) {
+                    return InteractionResponse({
+                        type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+                        data: { content: '已訂閱！' },
+                    })
+                } else {
+                    await queryChannels.subscribe(interaction.channel_id)
+                    return InteractionResponse({
+                        type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+                        data: { content: '訂閱成功！' },
+                    })
+                }
             case command.UNSUBSCRIBE.name:
-                await queryChannels.unsubscribe(interaction.channel_id)
-                return InteractionResponse({
-                    type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-                    data: { content: '取消訂閱成功！' },
-                })
+                if (!(await queryChannels.get(interaction.channel_id))) {
+                    return InteractionResponse({
+                        type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+                        data: { content: '未訂閱！' },
+                    })
+                } else {
+                    await queryChannels.unsubscribe(interaction.channel_id)
+                    return InteractionResponse({
+                        type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+                        data: { content: '取消訂閱成功！' },
+                    })
+                }
         }
     }
 
@@ -195,6 +218,7 @@ export default {
     async scheduled(event, env, ctx) {
         const queryLatestNews = query.latestNews(env.TORAM)
         const queryPendingNews = query.pendingNews(env.TORAM)
+        const queryChannels = query.channels(env.TORAM)
 
         const news = await fetchNews()
         const { deletions, updates } = await checkNewsDifference(queryLatestNews, news)
@@ -205,7 +229,7 @@ export default {
             await queryLatestNews.update(deletions, updates)
         }
 
-        await sendPendingNews(queryPendingNews, env.DISCORD_BOT_TOKEN)
+        await sendPendingNews(queryPendingNews, queryChannels, env.DISCORD_BOT_TOKEN)
     },
     async fetch(request, env, ctx) {
         // Handle Discord interactions

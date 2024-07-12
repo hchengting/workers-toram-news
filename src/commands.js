@@ -1,11 +1,11 @@
 const SUBSCRIBE = {
     name: 'subscribe',
-    description: '在此頻道訂閱公告',
+    description: '訂閱公告到此頻道',
 }
 
 const UNSUBSCRIBE = {
     name: 'unsubscribe',
-    description: '在此頻道取消訂閱公告',
+    description: '取消訂閱公告到此頻道',
 }
 
 const command = {
