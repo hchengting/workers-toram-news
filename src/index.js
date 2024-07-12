@@ -3,8 +3,8 @@ import { REST } from '@discordjs/rest'
 import { Routes } from 'discord-api-types/v10'
 import { parse } from 'node-html-parser'
 import { convert } from 'html-to-text'
+import command from './command'
 import query from './query'
-import command from './commands'
 
 const baseurl = 'https://tw.toram.jp'
 const path = '/information'
@@ -152,10 +152,10 @@ async function sendPendingNews(queryPendingNews, queryChannels, token) {
                 passThroughBody: true,
             })
             await queryPendingNews.deleteFirst()
-            await new Promise((resolve) => setTimeout(resolve, 1000))
+            await new Promise((resolve) => setTimeout(resolve, 200))
         } catch (error) {
-            // Handle 50001: Missing Access, 10003: Unknown Channel
-            if (error.code === 50001 || error.code === 10003) {
+            // 50001: Missing Access, 50013: Missing Permissions, 10003: Unknown Channel
+            if ([50001, 50013, 10003].includes(error.code)) {
                 await queryChannels.unsubscribe(news.channelId)
             } else {
                 throw error
@@ -164,49 +164,65 @@ async function sendPendingNews(queryPendingNews, queryChannels, token) {
     }
 }
 
-function InteractionResponse(data) {
-    return new Response(JSON.stringify(data), {
+async function checkBotPermission(channelId, token) {
+    const rest = new REST({ rejectOnRateLimit: ['/channels'] }).setToken(token)
+
+    try {
+        const message = await rest.post(Routes.channelMessages(channelId), {
+            body: {
+                embeds: [
+                    {
+                        title: '處理中',
+                        description: '請稍後...',
+                        url: 'https://example.com',
+                    },
+                ],
+            },
+        })
+        await rest.delete(Routes.channelMessage(channelId, message.id))
+        return true
+    } catch (error) {
+        return false
+    }
+}
+
+function InteractionResponse(content, type = InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE) {
+    const body = JSON.stringify({ type, data: { content } })
+
+    return new Response(body, {
         headers: {
             'content-type': 'application/json',
         },
     })
 }
 
-async function handleInteraction(request, env) {
-    const interaction = await request.json()
+async function handleInteraction(env, interaction) {
     const queryChannels = query.channels(env.TORAM)
 
     if (interaction.type === InteractionType.PING) {
-        return InteractionResponse({ type: InteractionResponseType.PONG })
+        return InteractionResponse(0, InteractionResponseType.PONG)
     }
 
     if (interaction.type === InteractionType.APPLICATION_COMMAND) {
+        const channelId = interaction.channel.id
         switch (interaction.data.name) {
             case command.SUBSCRIBE.name:
-                if (await queryChannels.get(interaction.channel_id)) {
-                    return InteractionResponse({
-                        type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-                        data: { content: '已訂閱！' },
-                    })
+                if (await queryChannels.get(channelId)) {
+                    return InteractionResponse('已訂閱！')
                 } else {
-                    await queryChannels.subscribe(interaction.channel_id)
-                    return InteractionResponse({
-                        type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-                        data: { content: '訂閱成功！' },
-                    })
+                    // Check message and embed link permissions
+                    if (!(await checkBotPermission(channelId, env.DISCORD_BOT_TOKEN))) {
+                        return InteractionResponse('訂閱失敗！請檢查發送訊息、嵌入連結等相關權限。')
+                    }
+                    await queryChannels.subscribe(channelId)
+                    return InteractionResponse('訂閱成功！')
                 }
             case command.UNSUBSCRIBE.name:
-                if (!(await queryChannels.get(interaction.channel_id))) {
-                    return InteractionResponse({
-                        type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-                        data: { content: '未訂閱！' },
-                    })
+                if (!(await queryChannels.get(channelId))) {
+                    return InteractionResponse('未訂閱！')
                 } else {
-                    await queryChannels.unsubscribe(interaction.channel_id)
-                    return InteractionResponse({
-                        type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-                        data: { content: '取消訂閱成功！' },
-                    })
+                    await queryChannels.unsubscribe(channelId)
+                    return InteractionResponse('取消訂閱成功！')
                 }
         }
     }
@@ -236,14 +252,14 @@ export default {
         if (request.method === 'POST') {
             const signature = request.headers.get('x-signature-ed25519')
             const timestamp = request.headers.get('x-signature-timestamp')
-            const body = await request.clone().arrayBuffer()
+            const body = await request.text()
             const isValidRequest = await verifyKey(body, signature, timestamp, env.DISCORD_PUBLIC_KEY)
 
             if (!isValidRequest) {
                 return new Response('Bad request signature.', { status: 401 })
             }
 
-            return handleInteraction(request, env)
+            return await handleInteraction(env, JSON.parse(body))
         } else {
             return new Response('Method Not Allowed.', { status: 405 })
         }
