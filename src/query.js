@@ -64,7 +64,7 @@ const pendingNews = (db) => {
 }
 
 const channels = (db) => {
-    const get = async (id) => await db.prepare('SELECT * FROM channels WHERE id = ?').bind(id).first()
+    const get = async (id) => !!(await db.prepare('SELECT * FROM channels WHERE id = ?').bind(id).first())
     const subscribe = async (id) => await db.prepare('INSERT OR IGNORE INTO channels (id) VALUES (?)').bind(id).run()
     const unsubscribe = async (id) => await db.prepare('DELETE FROM channels WHERE id = ?').bind(id).run()
 

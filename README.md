@@ -1,11 +1,8 @@
 # Workers Toram News
+ 
+This Discord bot regularly fetches announcements from https://tw.toram.jp/information and sends them to the Discord channel.
 
-This worker periodically fetches news from https://tw.toram.jp/information and sends news to Discord channels.
-
-## Prerequisites
-
-- Node.js: v18.12.0
-- pnpm: v9.1.2
+Hosted on Cloudflare Workers.
 
 ## How to Deploy
 
@@ -34,7 +31,7 @@ pnpm wrangler d1 execute toram --remote --file=./schema.sql
 
 Copy `wrangler.toml.example` and rename it to `wrangler.toml`.
 
-Replace `database_id` with your own ID from above.
+Replace `database_id` with your own id from above.
 
 ```toml
 [[d1_databases]]
@@ -43,30 +40,99 @@ database_name = "toram"
 database_id = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
 ```
 
-### Add Discord Bot Token
-
-```bash
-pnpm wrangler secret put DISCORD_BOT_TOKEN
-```
-
 ### Deploy
 
 ```bash
 pnpm run deploy
 ```
 
-## Add Discord Channels
+## Setup Discord Bot
 
-Go to [Cloudflare D1](https://dash.cloudflare.com/?to=/:account/workers/d1).
+Follow [Setting up a bot application | discord.js Guide (discordjs.guide)](https://discordjs.guide/preparations/setting-up-a-bot-application.html) to create your Discord bot.
 
-Click on the table `channels`.
+### [Add Discord Bot Token & Public Key to Workers](https://developers.cloudflare.com/workers/configuration/secrets/)
 
-![image](https://github.com/hchengting/workers-toram-news/assets/74168694/42ed4561-15d2-4bbd-964b-4ac399010a1a)
+#### For Local Development
 
-Click `Add data`.
+Copy `.dev.vars.example` and rename it to `.dev.vars`.
 
-![image](https://github.com/hchengting/workers-toram-news/assets/74168694/7b98e222-123d-422e-a7de-c51c53c0ffd3)
+Fill in the bot token and public key.
 
-Paste your channel id and click `Save`.
+```env
+DISCORD_BOT_TOKEN=""
+DISCORD_PUBLIC_KEY=""
+```
 
-![image](https://github.com/hchengting/workers-toram-news/assets/74168694/838a0191-012a-4232-b7a1-20089240a7c7)
+#### For Deployed Workers
+
+```bash
+pnpm wrangler secret put DISCORD_BOT_TOKEN
+pnpm wrangler secret put DISCORD_PUBLIC_KEY
+```
+
+### Register Slash Commands
+
+Fill in the bot token and application id in `src/register.js`.
+
+```javascript
+const token = ''
+const applicationId = ''
+```
+
+```bash
+node src/register.js
+```
+
+### Add Bot to Server
+
+Go to [Discord Developer Portal — My Applications](https://discord.com/developers/applications).
+
+Click on your bot application and open the OAuth2 page.
+
+#### OAuth2 URL Generator
+
+Select the `bot` scope.
+
+![image](https://github.com/user-attachments/assets/f0d5ff49-e2dc-4477-9fbc-cb3698cff60c)
+
+Select `Send Messages`, `Embed Links` permissions.
+
+![image](https://github.com/user-attachments/assets/56911834-dc3d-47ce-a07e-5a6c5cb1ca6d)
+
+Invite bot to the server by visiting the generated URL.
+
+![image](https://github.com/user-attachments/assets/cebc4bdc-f9c0-460c-9e9a-23fe3bb28639)
+
+#### Change Default Install Link
+
+Go to [Discord Developer Portal — My Applications](https://discord.com/developers/applications).
+
+Click on your bot application and open the Installation page.
+
+Select `Custom URL` and paste the generated URL.
+
+![image](https://github.com/user-attachments/assets/4e2cd120-b784-4077-b495-571a999bdc9a)
+
+### Change Interactions Endpoint URL
+
+Go to [Discord Developer Portal — My Applications](https://discord.com/developers/applications).
+
+Click on your bot application and open the General Information page.
+
+Update this field to use your Cloudflare Workers URL.
+
+For example, `https://workers-toram-news.<YOUR_SUBDOMAIN>.workers.dev`.
+
+![image](https://github.com/user-attachments/assets/b50da751-f31b-45bd-82f2-7bf30b762b86)
+
+### Subscribe to Toram Annoucements
+
+Use `/subscribe` command in the channel.
+
+![image](https://github.com/user-attachments/assets/80ca957d-3e96-4ab5-97ac-5de61b9e1745)
+
+## References
+
+- [Discord Developer Portal — Documentation — Hosting on Cloudflare Workers](https://discord.com/developers/docs/tutorials/hosting-on-cloudflare-workers)
+- [discord/cloudflare-sample-app: Example discord bot using Cloudflare Workers (github.com)](https://github.com/discord/cloudflare-sample-app)
+- [@discordjs/rest](https://discord.js.org/docs/packages/rest/main)

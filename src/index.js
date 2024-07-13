@@ -139,7 +139,7 @@ async function generateNewsEmbeds(updates) {
 }
 
 async function sendPendingNews(queryPendingNews, queryChannels, token) {
-    const rest = new REST({ rejectOnRateLimit: ['/channels'] }).setToken(token)
+    const rest = new REST({ rejectOnRateLimit: () => true }).setToken(token)
 
     while (true) {
         const news = await queryPendingNews.getFirst()
@@ -147,9 +147,9 @@ async function sendPendingNews(queryPendingNews, queryChannels, token) {
 
         try {
             await rest.post(Routes.channelMessages(news.channelId), {
-                body: news.body,
                 headers: { 'content-type': 'application/json' },
                 passThroughBody: true,
+                body: news.body,
             })
             await queryPendingNews.deleteFirst()
             await new Promise((resolve) => setTimeout(resolve, 200))
@@ -165,7 +165,7 @@ async function sendPendingNews(queryPendingNews, queryChannels, token) {
 }
 
 async function checkBotPermission(channelId, token) {
-    const rest = new REST({ rejectOnRateLimit: ['/channels'] }).setToken(token)
+    const rest = new REST({ rejectOnRateLimit: () => true }).setToken(token)
 
     try {
         const message = await rest.post(Routes.channelMessages(channelId), {
@@ -187,7 +187,7 @@ async function checkBotPermission(channelId, token) {
 }
 
 function InteractionResponse(content, type = InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE) {
-    const body = JSON.stringify({ type, data: { content } })
+    const body = JSON.stringify({ data: { content }, type })
 
     return new Response(body, {
         headers: {
@@ -205,32 +205,38 @@ async function handleInteraction(env, interaction) {
 
     if (interaction.type === InteractionType.APPLICATION_COMMAND) {
         const channelId = interaction.channel.id
+        const subscribed = await queryChannels.get(channelId)
+        let content = ''
+
         switch (interaction.data.name) {
             case command.SUBSCRIBE.name:
-                if (await queryChannels.get(channelId)) {
-                    return InteractionResponse('已訂閱！')
+                if (subscribed) {
+                    content = '已訂閱！'
+                } else if (!(await checkBotPermission(channelId, env.DISCORD_BOT_TOKEN))) {
+                    content = '訂閱失敗！請檢查發送訊息、嵌入連結等相關權限。'
                 } else {
-                    // Check message and embed link permissions
-                    if (!(await checkBotPermission(channelId, env.DISCORD_BOT_TOKEN))) {
-                        return InteractionResponse('訂閱失敗！請檢查發送訊息、嵌入連結等相關權限。')
-                    }
                     await queryChannels.subscribe(channelId)
-                    return InteractionResponse('訂閱成功！')
+                    content = '訂閱成功！'
                 }
+                break
             case command.UNSUBSCRIBE.name:
-                if (!(await queryChannels.get(channelId))) {
-                    return InteractionResponse('未訂閱！')
+                if (!subscribed) {
+                    content = '未訂閱！'
                 } else {
                     await queryChannels.unsubscribe(channelId)
-                    return InteractionResponse('取消訂閱成功！')
+                    content = '取消訂閱成功！'
                 }
+                break
         }
+
+        return InteractionResponse(content)
     }
 
     return new Response('Bad request.', { status: 400 })
 }
 
 export default {
+    // Fetch latest news and send to Discord
     async scheduled(event, env, ctx) {
         const queryLatestNews = query.latestNews(env.TORAM)
         const queryPendingNews = query.pendingNews(env.TORAM)
@@ -247,8 +253,8 @@ export default {
 
         await sendPendingNews(queryPendingNews, queryChannels, env.DISCORD_BOT_TOKEN)
     },
+    // Handle Discord interactions
     async fetch(request, env, ctx) {
-        // Handle Discord interactions
         if (request.method === 'POST') {
             const signature = request.headers.get('x-signature-ed25519')
             const timestamp = request.headers.get('x-signature-timestamp')
