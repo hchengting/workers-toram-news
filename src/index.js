@@ -1,8 +1,9 @@
-import { InteractionResponseType, InteractionType, verifyKey } from 'discord-interactions'
+import { Routes, InteractionType, InteractionResponseType, ComponentType } from 'discord-api-types/v10'
 import { REST } from '@discordjs/rest'
-import { Routes } from 'discord-api-types/v10'
+import { verifyKey } from 'discord-interactions'
 import { parse } from 'node-html-parser'
 import { convert } from 'html-to-text'
+import { categoryMap, componentOptions } from './category'
 import command from './command'
 import query from './query'
 
@@ -10,8 +11,7 @@ const baseurl = 'https://tw.toram.jp'
 const path = '/information'
 const url = `${baseurl}${path}`
 const headers = {
-    'User-Agent':
-        'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36',
+    'User-Agent': 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36',
 }
 
 async function fetchNews() {
@@ -30,11 +30,13 @@ async function fetchNews() {
         const title = newsNode.querySelector('p.news_title').text
         const url = `${baseurl}${newsNode.querySelector('a').getAttribute('href')}`
         const thumbnail = newsNode.querySelector('img').getAttribute('src')
+        const category = categoryMap[thumbnail.split('icon_news_')[1].split('.')[0]] || ''
 
         news.unshift({
             title,
             url,
             thumbnail,
+            category,
         })
     }
 
@@ -95,10 +97,11 @@ async function fetchNewsContent(news) {
             thumbnail,
             description,
             image: images.shift(),
+            category: news.category,
         })
 
         for (const image of images) {
-            embeds.push({ url, image })
+            embeds.push({ url, image, category: news.category })
         }
     }
 
@@ -186,8 +189,8 @@ async function checkBotPermission(channelId, token) {
     }
 }
 
-function InteractionResponse(content, type = InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE) {
-    const body = JSON.stringify({ data: { content }, type })
+function InteractionResponse(content, components = undefined, type = InteractionResponseType.ChannelMessageWithSource) {
+    const body = JSON.stringify({ data: { content, components }, type })
 
     return new Response(body, {
         headers: {
@@ -199,28 +202,39 @@ function InteractionResponse(content, type = InteractionResponseType.CHANNEL_MES
 async function handleInteraction(env, interaction) {
     const queryChannels = query.channels(env.TORAM)
 
-    if (interaction.type === InteractionType.PING) {
-        return InteractionResponse(0, InteractionResponseType.PONG)
+    if (interaction.type === InteractionType.Ping) {
+        return InteractionResponse(undefined, undefined, InteractionResponseType.Pong)
     }
 
-    if (interaction.type === InteractionType.APPLICATION_COMMAND) {
+    if (interaction.type === InteractionType.ApplicationCommand) {
         const channelId = interaction.channel.id
-        const subscribed = await queryChannels.get(channelId)
         let content = ''
 
         switch (interaction.data.name) {
             case command.SUBSCRIBE.name:
-                if (subscribed) {
-                    content = '已訂閱！'
-                } else if (!(await checkBotPermission(channelId, env.DISCORD_BOT_TOKEN))) {
+                if (!(await checkBotPermission(channelId, env.DISCORD_BOT_TOKEN))) {
                     content = '訂閱失敗！請檢查發送訊息、嵌入連結等相關權限。'
                 } else {
-                    await queryChannels.subscribe(channelId)
-                    content = '訂閱成功！'
+                    // Let user select categories
+                    return InteractionResponse(undefined, [
+                        {
+                            type: ComponentType.ActionRow,
+                            components: [
+                                {
+                                    type: ComponentType.StringSelect,
+                                    custom_id: 'select',
+                                    placeholder: '請選擇訂閱類別',
+                                    min_values: 1,
+                                    max_values: Object.values(categoryMap).length,
+                                    options: componentOptions,
+                                },
+                            ],
+                        },
+                    ])
                 }
                 break
             case command.UNSUBSCRIBE.name:
-                if (!subscribed) {
+                if (!(await queryChannels.get(channelId))) {
                     content = '未訂閱！'
                 } else {
                     await queryChannels.unsubscribe(channelId)
@@ -230,6 +244,13 @@ async function handleInteraction(env, interaction) {
         }
 
         return InteractionResponse(content)
+    }
+
+    if (interaction.type === InteractionType.MessageComponent && interaction.data.component_type === ComponentType.StringSelect) {
+        const allCategories = Object.values(categoryMap)
+        const categories = interaction.data.values.sort((a, b) => allCategories.indexOf(a) - allCategories.indexOf(b))
+        await queryChannels.subscribe(interaction.channel.id, categories)
+        return InteractionResponse(`訂閱成功！類別：${categories.join('、')}`)
     }
 
     return new Response('Bad request.', { status: 400 })
