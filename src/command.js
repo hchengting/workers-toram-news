@@ -5,7 +5,7 @@ const SUBSCRIBE = {
 
 const UNSUBSCRIBE = {
     name: 'unsubscribe',
-    description: '取消訂閱所有公告',
+    description: '取消此頻道所有訂閱',
 }
 
 const command = {

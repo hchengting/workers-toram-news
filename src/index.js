@@ -141,15 +141,13 @@ async function generateNewsEmbeds(updates) {
     return newsEmbeds.flatMap((embeds) => [...chunks(embeds, 10)])
 }
 
-async function sendPendingNews(queryPendingNews, queryChannels, token) {
-    const rest = new REST({ rejectOnRateLimit: () => true }).setToken(token)
-
+async function sendPendingNews(discordApi, queryPendingNews, queryChannels) {
     while (true) {
         const news = await queryPendingNews.getFirst()
         if (!news) break
 
         try {
-            await rest.post(Routes.channelMessages(news.channelId), {
+            await discordApi.post(Routes.channelMessages(news.channelId), {
                 headers: { 'content-type': 'application/json' },
                 passThroughBody: true,
                 body: news.body,
@@ -167,11 +165,22 @@ async function sendPendingNews(queryPendingNews, queryChannels, token) {
     }
 }
 
-async function checkBotPermission(channelId, token) {
-    const rest = new REST({ rejectOnRateLimit: () => true }).setToken(token)
+async function verifyInteraction(request, publicKey) {
+    const signature = request.headers.get('x-signature-ed25519')
+    const timestamp = request.headers.get('x-signature-timestamp')
+    const body = await request.text()
+    const valid = await verifyKey(body, signature, timestamp, publicKey)
+    const interaction = JSON.parse(body)
 
+    return {
+        valid,
+        interaction,
+    }
+}
+
+async function checkBotPermission(discordApi, channelId) {
     try {
-        const message = await rest.post(Routes.channelMessages(channelId), {
+        const message = await discordApi.post(Routes.channelMessages(channelId), {
             body: {
                 embeds: [
                     {
@@ -182,7 +191,7 @@ async function checkBotPermission(channelId, token) {
                 ],
             },
         })
-        await rest.delete(Routes.channelMessage(channelId, message.id))
+        await discordApi.delete(Routes.channelMessage(channelId, message.id))
         return true
     } catch (error) {
         return false
@@ -199,9 +208,7 @@ function InteractionResponse(content, components = undefined, type = Interaction
     })
 }
 
-async function handleInteraction(env, interaction) {
-    const queryChannels = query.channels(env.TORAM)
-
+async function handleInteraction(discordApi, queryChannels, interaction) {
     if (interaction.type === InteractionType.Ping) {
         return InteractionResponse(undefined, undefined, InteractionResponseType.Pong)
     }
@@ -212,7 +219,7 @@ async function handleInteraction(env, interaction) {
 
         switch (interaction.data.name) {
             case command.SUBSCRIBE.name:
-                if (!(await checkBotPermission(channelId, env.DISCORD_BOT_TOKEN))) {
+                if (!(await checkBotPermission(discordApi, channelId))) {
                     content = '訂閱失敗！請檢查發送訊息、嵌入連結等相關權限。'
                 } else {
                     // Let user select categories
@@ -249,7 +256,10 @@ async function handleInteraction(env, interaction) {
     if (interaction.type === InteractionType.MessageComponent && interaction.data.component_type === ComponentType.StringSelect) {
         const allCategories = Object.values(categoryMap)
         const categories = interaction.data.values.sort((a, b) => allCategories.indexOf(a) - allCategories.indexOf(b))
+
+        await discordApi.delete(Routes.channelMessage(interaction.channel.id, interaction.message.id))
         await queryChannels.subscribe(interaction.channel.id, categories)
+
         return InteractionResponse(`訂閱成功！類別：${categories.join('、')}`)
     }
 
@@ -259,6 +269,7 @@ async function handleInteraction(env, interaction) {
 export default {
     // Fetch latest news and send to Discord
     async scheduled(event, env, ctx) {
+        const discordApi = new REST({ rejectOnRateLimit: () => true }).setToken(env.DISCORD_BOT_TOKEN)
         const queryLatestNews = query.latestNews(env.TORAM)
         const queryPendingNews = query.pendingNews(env.TORAM)
         const queryChannels = query.channels(env.TORAM)
@@ -272,23 +283,23 @@ export default {
             await queryLatestNews.update(deletions, updates)
         }
 
-        await sendPendingNews(queryPendingNews, queryChannels, env.DISCORD_BOT_TOKEN)
+        await sendPendingNews(discordApi, queryPendingNews, queryChannels)
     },
     // Handle Discord interactions
     async fetch(request, env, ctx) {
-        if (request.method === 'POST') {
-            const signature = request.headers.get('x-signature-ed25519')
-            const timestamp = request.headers.get('x-signature-timestamp')
-            const body = await request.text()
-            const isValidRequest = await verifyKey(body, signature, timestamp, env.DISCORD_PUBLIC_KEY)
+        const discordApi = new REST({ rejectOnRateLimit: () => true }).setToken(env.DISCORD_BOT_TOKEN)
+        const queryChannels = query.channels(env.TORAM)
 
-            if (!isValidRequest) {
+        if (request.method === 'POST') {
+            const { valid, interaction } = await verifyInteraction(request, env.DISCORD_PUBLIC_KEY)
+
+            if (valid) {
+                return await handleInteraction(discordApi, queryChannels, interaction)
+            } else {
                 return new Response('Bad request signature.', { status: 401 })
             }
-
-            return await handleInteraction(env, JSON.parse(body))
-        } else {
-            return new Response('Method Not Allowed.', { status: 405 })
         }
+
+        return new Response('Method Not Allowed.', { status: 405 })
     },
 }
