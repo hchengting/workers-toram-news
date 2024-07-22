@@ -7,7 +7,8 @@ CREATE TABLE IF NOT EXISTS latest_news (
     title TEXT NOT NULL,
     url TEXT NOT NULL,
     thumbnail TEXT NOT NULL,
-    category TEXT NOT NULL
+    category TEXT NOT NULL,
+    UNIQUE (title, url, thumbnail, category)
 );
 
 CREATE TABLE IF NOT EXISTS pending_news (

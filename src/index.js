@@ -221,25 +221,24 @@ async function handleInteraction(discordApi, queryChannels, interaction) {
             case command.SUBSCRIBE.name:
                 if (!(await checkBotPermission(discordApi, channelId))) {
                     content = '訂閱失敗！請檢查發送訊息、嵌入連結等相關權限。'
-                } else {
-                    // Let user select categories
-                    return InteractionResponse(undefined, [
-                        {
-                            type: ComponentType.ActionRow,
-                            components: [
-                                {
-                                    type: ComponentType.StringSelect,
-                                    custom_id: 'select',
-                                    placeholder: '請選擇訂閱類別',
-                                    min_values: 1,
-                                    max_values: Object.values(categoryMap).length,
-                                    options: componentOptions,
-                                },
-                            ],
-                        },
-                    ])
+                    break
                 }
-                break
+                // Let user select categories
+                return InteractionResponse(undefined, [
+                    {
+                        type: ComponentType.ActionRow,
+                        components: [
+                            {
+                                type: ComponentType.StringSelect,
+                                custom_id: 'select',
+                                placeholder: '請選擇訂閱類別',
+                                min_values: 1,
+                                max_values: Object.values(categoryMap).length,
+                                options: componentOptions,
+                            },
+                        ],
+                    },
+                ])
             case command.UNSUBSCRIBE.name:
                 if (!(await queryChannels.get(channelId))) {
                     content = '未訂閱！'
@@ -279,27 +278,26 @@ export default {
 
         if (updates.length) {
             const newsEmbeds = await generateNewsEmbeds(updates)
-            await queryPendingNews.insert(newsEmbeds)
             await queryLatestNews.update(deletions, updates)
+            await queryPendingNews.insert(newsEmbeds)
         }
 
         await sendPendingNews(discordApi, queryPendingNews, queryChannels)
     },
     // Handle Discord interactions
     async fetch(request, env, ctx) {
-        const discordApi = new REST({ rejectOnRateLimit: () => true }).setToken(env.DISCORD_BOT_TOKEN)
-        const queryChannels = query.channels(env.TORAM)
-
-        if (request.method === 'POST') {
-            const { valid, interaction } = await verifyInteraction(request, env.DISCORD_PUBLIC_KEY)
-
-            if (valid) {
-                return await handleInteraction(discordApi, queryChannels, interaction)
-            } else {
-                return new Response('Bad request signature.', { status: 401 })
-            }
+        if (request.method !== 'POST') {
+            return new Response('Method Not Allowed.', { status: 405 })
         }
 
-        return new Response('Method Not Allowed.', { status: 405 })
+        const discordApi = new REST({ rejectOnRateLimit: () => true }).setToken(env.DISCORD_BOT_TOKEN)
+        const queryChannels = query.channels(env.TORAM)
+        const { valid, interaction } = await verifyInteraction(request, env.DISCORD_PUBLIC_KEY)
+
+        if (!valid) {
+            return new Response('Bad request signature.', { status: 401 })
+        }
+
+        return await handleInteraction(discordApi, queryChannels, interaction)
     },
 }
