@@ -108,8 +108,8 @@ async function fetchNewsContent(news) {
     return embeds
 }
 
-async function checkNewsDifference(queryLatestNews, news) {
-    const latestNews = await queryLatestNews.list()
+async function checkNewsDifference(queryD1, news) {
+    const latestNews = await queryD1.listLatestNews()
     const latestNewsSet = new Set(latestNews.map((n) => JSON.stringify(n)))
     const newsSet = new Set(news.map((n) => JSON.stringify(n)))
 
@@ -160,9 +160,9 @@ async function generateNewsEmbeds(updates) {
     return newsEmbeds.flatMap((embeds) => [...chunks(embeds)])
 }
 
-async function sendPendingNews(discordApi, queryPendingNews, queryChannels) {
+async function sendPendingNews(queryD1, discordApi) {
     while (true) {
-        const news = await queryPendingNews.getFirst()
+        const news = await queryD1.getFirstPendingNews()
         if (!news) break
 
         try {
@@ -171,12 +171,12 @@ async function sendPendingNews(discordApi, queryPendingNews, queryChannels) {
                 passThroughBody: true,
                 body: news.body,
             })
-            await queryPendingNews.deleteFirst()
-            await new Promise((resolve) => setTimeout(resolve, 200))
+            await queryD1.deleteFirstPendingNews()
+            await new Promise((resolve) => setTimeout(resolve, 500))
         } catch (error) {
             // 50001: Missing Access, 50013: Missing Permissions, 10003: Unknown Channel
             if ([50001, 50013, 10003].includes(error.code)) {
-                await queryChannels.unsubscribe(news.channelId)
+                await queryD1.unsubscribeChannel(news.channelId)
             } else {
                 throw error
             }
@@ -227,7 +227,7 @@ function InteractionResponse(content, components = undefined, type = Interaction
     })
 }
 
-async function handleInteraction(discordApi, queryChannels, interaction) {
+async function handleInteraction(queryD1, discordApi, interaction) {
     if (interaction.type === InteractionType.Ping) {
         return InteractionResponse(undefined, undefined, InteractionResponseType.Pong)
     }
@@ -259,10 +259,10 @@ async function handleInteraction(discordApi, queryChannels, interaction) {
                     },
                 ])
             case command.UNSUBSCRIBE.name:
-                if (!(await queryChannels.get(channelId))) {
+                if (!(await queryD1.isChannelSubscribed(channelId))) {
                     content = '未訂閱！'
                 } else {
-                    await queryChannels.unsubscribe(channelId)
+                    await queryD1.unsubscribeChannel(channelId)
                     content = '取消訂閱成功！'
                 }
                 break
@@ -276,7 +276,7 @@ async function handleInteraction(discordApi, queryChannels, interaction) {
         const categories = interaction.data.values.sort((a, b) => allCategories.indexOf(a) - allCategories.indexOf(b))
 
         await discordApi.delete(Routes.channelMessage(interaction.channel.id, interaction.message.id))
-        await queryChannels.subscribe(interaction.channel.id, categories)
+        await queryD1.subscribeChannel(interaction.channel.id, categories)
 
         return InteractionResponse(`訂閱成功！類別：${categories.join('、')}`)
     }
@@ -287,20 +287,18 @@ async function handleInteraction(discordApi, queryChannels, interaction) {
 export default {
     // Fetch latest news and send to Discord
     async scheduled(event, env, ctx) {
+        const queryD1 = query(env.TORAM)
         const discordApi = new REST({ rejectOnRateLimit: () => true }).setToken(env.DISCORD_BOT_TOKEN)
-        const queryLatestNews = query.latestNews(env.TORAM)
-        const queryPendingNews = query.pendingNews(env.TORAM)
-        const queryChannels = query.channels(env.TORAM)
 
         const news = await fetchNews()
-        const { deletions, updates } = await checkNewsDifference(queryLatestNews, news)
+        const { deletions, updates } = await checkNewsDifference(queryD1, news)
 
         if (updates.length) {
             const newsEmbeds = await generateNewsEmbeds(updates)
-            await queryLatestNews.update(deletions, updates, newsEmbeds)
+            await queryD1.updateLatestNews(deletions, updates, newsEmbeds)
         }
 
-        await sendPendingNews(discordApi, queryPendingNews, queryChannels)
+        await sendPendingNews(queryD1, discordApi)
     },
     // Handle Discord interactions
     async fetch(request, env, ctx) {
@@ -308,14 +306,14 @@ export default {
             return new Response('Method Not Allowed.', { status: 405 })
         }
 
+        const queryD1 = query(env.TORAM)
         const discordApi = new REST({ rejectOnRateLimit: () => true }).setToken(env.DISCORD_BOT_TOKEN)
-        const queryChannels = query.channels(env.TORAM)
         const { valid, interaction } = await verifyInteraction(request, env.DISCORD_PUBLIC_KEY)
 
         if (!valid) {
             return new Response('Bad request signature.', { status: 401 })
         }
 
-        return await handleInteraction(discordApi, queryChannels, interaction)
+        return await handleInteraction(queryD1, discordApi, interaction)
     },
 }
