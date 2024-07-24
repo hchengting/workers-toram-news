@@ -77,7 +77,7 @@ async function fetchNewsContent(news) {
         const thumbnail = head === null ? { url: news.thumbnail } : undefined
 
         const section = parse(contents.join(''))
-        const description = convert(section.toString(), {
+        const text = convert(section.toString(), {
             wordwrap: false,
             selectors: [
                 { selector: 'a', options: { baseUrl: 'https:', linkBrackets: false } },
@@ -85,10 +85,10 @@ async function fetchNewsContent(news) {
                 { selector: 'img', format: 'skip' },
                 { selector: 'button', format: 'skip' },
                 { selector: 'table', format: 'dataTable' },
-                { selector: 'details', format: 'blockString', options: { string: '點擊連結查看詳情' } },
             ],
         }).replace(/\n{3,}/g, '\n\n')
 
+        const description = text.length > 2048 ? `${text.slice(0, 2045)}...` : text
         const images = section.querySelectorAll('img').map((img) => ({ url: img.getAttribute('src') }))
 
         embeds.push({
@@ -131,14 +131,33 @@ async function generateNewsEmbeds(updates) {
         await new Promise((resolve) => setTimeout(resolve, 1000))
     }
 
-    function* chunks(arr, n) {
-        for (let i = 0; i < arr.length; i += n) {
-            yield arr.slice(i, i + n)
+    function* chunks(embeds) {
+        const maxEmbeds = 10
+        const maxChars = 3000
+
+        for (let i = 0; i < embeds.length; ) {
+            let totalChars = 0
+            let j = i
+
+            while (j < embeds.length && j - i < maxEmbeds) {
+                const embed = embeds[j]
+                const chars = (embed.title?.length || 0) + (embed.description?.length || 0)
+
+                if (totalChars + chars > maxChars) {
+                    break
+                }
+
+                totalChars += chars
+                j++
+            }
+
+            yield embeds.slice(i, j)
+            i = j
         }
     }
 
-    // Split into chunks of 10 for Discord embeds limit
-    return newsEmbeds.flatMap((embeds) => [...chunks(embeds, 10)])
+    // Split into smaller chunks to follow Discord embeds limit
+    return newsEmbeds.flatMap((embeds) => [...chunks(embeds)])
 }
 
 async function sendPendingNews(discordApi, queryPendingNews, queryChannels) {
@@ -278,8 +297,7 @@ export default {
 
         if (updates.length) {
             const newsEmbeds = await generateNewsEmbeds(updates)
-            await queryLatestNews.update(deletions, updates)
-            await queryPendingNews.insert(newsEmbeds)
+            await queryLatestNews.update(deletions, updates, newsEmbeds)
         }
 
         await sendPendingNews(discordApi, queryPendingNews, queryChannels)
