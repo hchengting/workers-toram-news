@@ -79,12 +79,34 @@ async function fetchNewsContent(news) {
         const section = parse(contents.join(''))
         const text = convert(section.toString(), {
             wordwrap: false,
+            formatters: {
+                markdownLink: (elem, walk, builder, _) => {
+                    const text = elem.children?.filter((child) => child.type === 'text')?.length === 1
+                    const href = elem.attribs?.href || ''
+                    const link = href.startsWith('//') ? `https:${href}` : href.startsWith('#') ? `${news.url}${href}` : ''
+
+                    if (text && link) {
+                        builder.startNoWrap()
+                        builder.addLiteral(`[`)
+                        walk(elem.children, builder)
+                        builder.addLiteral(`](`)
+                        builder.addInline(link, { noWordTransform: true })
+                        builder.addLiteral(`)`)
+                        builder.stopNoWrap()
+                    } else {
+                        walk(elem.children, builder)
+                        builder.addInline(link, { noWordTransform: true })
+                    }
+                },
+            },
             selectors: [
-                { selector: 'a', options: { baseUrl: 'https:', linkBrackets: false } },
+                { selector: 'a', format: 'markdownLink' },
                 { selector: 'hr', format: 'skip' },
                 { selector: 'img', format: 'skip' },
                 { selector: 'button', format: 'skip' },
                 { selector: 'table', format: 'dataTable' },
+                { selector: 'font', format: 'inlineSurround', options: { prefix: '***', suffix: '***' } },
+                { selector: 'span', format: 'inlineSurround', options: { prefix: '***', suffix: '***' } },
             ],
         }).replace(/\n{3,}/g, '\n\n')
 

@@ -1,5 +1,5 @@
 # Workers Toram News
- 
+
 This Discord bot regularly fetches announcements from https://tw.toram.jp/information and sends them to the Discord channel.
 
 Hosted on Cloudflare Workers.
