@@ -14,7 +14,8 @@ CREATE TABLE IF NOT EXISTS latest_news (
 CREATE TABLE IF NOT EXISTS pending_news (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     channel_id TEXT NOT NULL,
-    body TEXT NOT NULL
+    body TEXT NOT NULL,
+    sending BOOLEAN NOT NULL DEFAULT FALSE
 );
 
 CREATE TABLE IF NOT EXISTS channel_subscriptions (

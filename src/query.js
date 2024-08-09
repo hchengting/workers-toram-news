@@ -27,13 +27,22 @@ const query = (db) => ({
     listLatestNews: async () => {
         return (await db.prepare('SELECT title, url, thumbnail, category FROM latest_news ORDER BY id ASC').all()).results
     },
-    // Get the first pending news
+    // Get the first pending news and mark it as sending
     getFirstPendingNews: async () => {
-        return await db.prepare('SELECT channel_id AS channelId, body FROM pending_news ORDER BY id ASC LIMIT 1').first()
+        const stmts = [
+            db.prepare('SELECT id, channel_id AS channelId, body, sending FROM pending_news ORDER BY id ASC LIMIT 1'),
+            db.prepare('UPDATE pending_news SET sending = TRUE WHERE id = (SELECT id FROM pending_news ORDER BY id ASC LIMIT 1)'),
+        ]
+
+        return (await db.batch([stmts[0], stmts[1]]))[0].results[0]
     },
-    // Delete the first pending news
-    deleteFirstPendingNews: async () => {
-        await db.prepare('DELETE FROM pending_news WHERE id = (SELECT id FROM pending_news ORDER BY id ASC LIMIT 1)').run()
+    // Delete pending news by id
+    deletePendingNews: async (id) => {
+        await db.prepare('DELETE FROM pending_news WHERE id = ?').bind(id).run()
+    },
+    // Release pending news by marking it as not sending
+    releasePendingNews: async (id) => {
+        await db.prepare('UPDATE pending_news SET sending = FALSE WHERE id = ?').bind(id).run()
     },
     // Check if a channel is subscribed to any category
     isChannelSubscribed: async (id) => {

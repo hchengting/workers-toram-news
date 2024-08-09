@@ -183,9 +183,11 @@ async function generateNewsEmbeds(updates) {
 }
 
 async function sendPendingNews(queryD1, discordApi) {
-    while (true) {
+    let count = 0
+
+    while (count++ < 40) {
         const news = await queryD1.getFirstPendingNews()
-        if (!news) break
+        if (!news || news.sending) break
 
         try {
             await discordApi.post(Routes.channelMessages(news.channelId), {
@@ -193,9 +195,9 @@ async function sendPendingNews(queryD1, discordApi) {
                 passThroughBody: true,
                 body: news.body,
             })
-            await queryD1.deleteFirstPendingNews()
-            await new Promise((resolve) => setTimeout(resolve, 500))
+            await queryD1.deletePendingNews(news.id)
         } catch (error) {
+            await queryD1.releasePendingNews(news.id)
             // 50001: Missing Access, 50013: Missing Permissions, 10003: Unknown Channel
             if ([50001, 50013, 10003].includes(error.code)) {
                 await queryD1.unsubscribeChannel(news.channelId)
@@ -310,7 +312,7 @@ export default {
     // Fetch latest news and send to Discord
     async scheduled(event, env, ctx) {
         const queryD1 = query(env.TORAM)
-        const discordApi = new REST({ rejectOnRateLimit: () => true }).setToken(env.DISCORD_BOT_TOKEN)
+        const discordApi = new REST({ version: '10' }).setToken(env.DISCORD_BOT_TOKEN)
 
         const news = await fetchNews()
         const { deletions, updates } = await checkNewsDifference(queryD1, news)
@@ -329,7 +331,7 @@ export default {
         }
 
         const queryD1 = query(env.TORAM)
-        const discordApi = new REST({ rejectOnRateLimit: () => true }).setToken(env.DISCORD_BOT_TOKEN)
+        const discordApi = new REST({ version: '10' }).setToken(env.DISCORD_BOT_TOKEN)
         const { valid, interaction } = await verifyInteraction(request, env.DISCORD_PUBLIC_KEY)
 
         if (!valid) {
