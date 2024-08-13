@@ -4,7 +4,7 @@ const query = (db) => ({
         const stmts = [
             // Delete old news and insert updates
             db.prepare('DELETE FROM latest_news WHERE url = ?'),
-            db.prepare('INSERT INTO latest_news (title, url, thumbnail, category) VALUES (?, ?, ?, ?)'),
+            db.prepare('INSERT INTO latest_news (date, category, title, url, thumbnail) VALUES (?, ?, ?, ?, ?)'),
             // Insert pending news based on the news category subsribed by each channel
             db.prepare('CREATE TABLE news (id INTEGER PRIMARY KEY AUTOINCREMENT, body TEXT, category TEXT)'),
             db.prepare('INSERT INTO news (body, category) VALUES (?, ?)'),
@@ -16,7 +16,7 @@ const query = (db) => ({
 
         await db.batch([
             ...deletions.map((n) => stmts[0].bind(n.url)),
-            ...updates.map((n) => stmts[1].bind(n.title, n.url, n.thumbnail, n.category)),
+            ...updates.map((n) => stmts[1].bind(n.date, n.category, n.title, n.url, n.thumbnail)),
             stmts[2],
             ...newsEmbeds.map((embeds) => stmts[3].bind(JSON.stringify({ embeds }), embeds[0].category)),
             stmts[4],
@@ -25,7 +25,7 @@ const query = (db) => ({
     },
     // List all latest news
     listLatestNews: async () => {
-        return (await db.prepare('SELECT title, url, thumbnail, category FROM latest_news ORDER BY id ASC').all()).results
+        return (await db.prepare('SELECT date, category, title, url, thumbnail FROM latest_news ORDER BY id ASC').all()).results
     },
     // Get the first pending news and mark it as sending
     getFirstPendingNews: async () => {

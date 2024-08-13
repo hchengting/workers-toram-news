@@ -27,16 +27,18 @@ async function fetchNews() {
     const newsNodeList = root.querySelectorAll('div.useBox > ul > li.news_border')
 
     for (const newsNode of newsNodeList) {
+        const date = newsNode.querySelector('time').getAttribute('datetime')
         const title = newsNode.querySelector('p.news_title').text
         const url = `${baseurl}${newsNode.querySelector('a').getAttribute('href')}`
         const thumbnail = newsNode.querySelector('img').getAttribute('src')
         const category = categoryMap[thumbnail.split('icon_news_')[1].split('.')[0]] || ''
 
         news.unshift({
+            date,
+            category,
             title,
             url,
             thumbnail,
-            category,
         })
     }
 

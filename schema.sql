@@ -4,11 +4,12 @@ DROP TABLE IF EXISTS channel_subscriptions;
 
 CREATE TABLE IF NOT EXISTS latest_news (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    date TEXT NOT NULL,
+    category TEXT NOT NULL,
     title TEXT NOT NULL,
     url TEXT NOT NULL,
     thumbnail TEXT NOT NULL,
-    category TEXT NOT NULL,
-    UNIQUE (title, url, thumbnail, category)
+    UNIQUE (date, category, title, url, thumbnail)
 );
 
 CREATE TABLE IF NOT EXISTS pending_news (

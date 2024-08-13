@@ -83,35 +83,23 @@ const applicationId = ''
 node src/register.js
 ```
 
-### Add Bot to Server
-
-Go to [Discord Developer Portal — My Applications](https://discord.com/developers/applications).
-
-Click on your bot application and open the OAuth2 page.
-
-#### OAuth2 URL Generator
-
-Select the `bot` scope.
-
-![image](https://github.com/user-attachments/assets/f0d5ff49-e2dc-4477-9fbc-cb3698cff60c)
-
-Select `Send Messages`, `Embed Links` permissions.
-
-![image](https://github.com/user-attachments/assets/56911834-dc3d-47ce-a07e-5a6c5cb1ca6d)
-
-Invite bot to the server by visiting the generated URL.
-
-![image](https://github.com/user-attachments/assets/cebc4bdc-f9c0-460c-9e9a-23fe3bb28639)
-
-#### Change Default Install Link
+### Change Default Install Settings
 
 Go to [Discord Developer Portal — My Applications](https://discord.com/developers/applications).
 
 Click on your bot application and open the Installation page.
 
-Select `Custom URL` and paste the generated URL.
+Select `Guild Install`.
 
-![image](https://github.com/user-attachments/assets/4e2cd120-b784-4077-b495-571a999bdc9a)
+Select the `bot` scope.
+
+Select `Embed Links`, `Send Messages` permissions.
+
+![image](https://github.com/user-attachments/assets/b10f9f8a-5734-44bf-8272-1c91477cd8d7)
+
+### Invite Bot to Server
+
+Invite bot to the server by visiting the install link.
 
 ### Change Interactions Endpoint URL
 
@@ -129,7 +117,7 @@ For example, `https://workers-toram-news.<YOUR_SUBDOMAIN>.workers.dev`.
 
 Use `/subscribe` command in the channel.
 
-![image](https://github.com/user-attachments/assets/80ca957d-3e96-4ab5-97ac-5de61b9e1745)
+![image](https://github.com/user-attachments/assets/dcb8a948-b47a-4b4e-94ca-3b19d8770742)
 
 ## References
 
