@@ -109,6 +109,8 @@ async function fetchNewsContent(news) {
                 { selector: 'table', format: 'dataTable' },
                 { selector: 'font', format: 'inlineSurround', options: { prefix: '***', suffix: '***' } },
                 { selector: 'span', format: 'inlineSurround', options: { prefix: '***', suffix: '***' } },
+                { selector: 'strong', format: 'inlineSurround', options: { prefix: '***', suffix: '***' } },
+                { selector: 'div.subtitle', format: 'inlineSurround', options: { prefix: '**➤ ', suffix: '**\n' } },
             ],
         }).replace(/\n{3,}/g, '\n\n')
 
