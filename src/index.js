@@ -3,7 +3,7 @@ import { convert } from 'html-to-text'
 import { REST } from '@discordjs/rest'
 import { verifyKey } from 'discord-interactions'
 import { Routes, InteractionType, InteractionResponseType, ComponentType } from 'discord-api-types/v10'
-import { categoryMap, getCategory, componentOptions } from './category'
+import { categories, getCategory, componentOptions } from './category'
 import command from './command'
 import query from './query'
 
@@ -27,13 +27,17 @@ async function fetchNews() {
         news: [
             {
                 selector: 'li.news_border',
-                value: (el, _) => ({
-                    date: $('time', el).attr('datetime'),
-                    category: getCategory($('img', el).attr('src')),
-                    title: $('p.news_title', el).text(),
-                    url: `${baseurl}${$('a', el).attr('href')}`,
-                    thumbnail: $('img', el).attr('src'),
-                }),
+                value: (el, _) => {
+                    const $el = $(el)
+
+                    return {
+                        date: $el.find('time').attr('datetime'),
+                        category: getCategory($el.find('img').attr('src')),
+                        title: $el.find('p.news_title').text(),
+                        url: `${baseurl}${$el.find('a').attr('href')}`,
+                        thumbnail: $el.find('img').attr('src'),
+                    }
+                },
             },
         ],
     })
@@ -54,40 +58,40 @@ async function fetchNewsContent(news) {
     const $ = cheerio.load(await response.text())
     const $container = $('div.useBox.newsBox')
 
-    let contents = $container.contents()
-    let start = contents.index($('div.smallTitleLine', $container))
-    let end = contents.index($('h2.deluxetitle:contains("注意事項")', $container))
-    if (end === -1) end = contents.length
+    let $contents = $container.contents()
+    let start = $contents.index($container.find('div.smallTitleLine'))
+    let end = $contents.index($container.find('h2.deluxetitle:contains("注意事項")'))
+    if (end === -1) end = $contents.length
 
     // Remove unwant elements
-    contents.each((i, el) => {
+    $contents.each((i, el) => {
         const $el = $(el)
 
         if (i <= start || i >= end) {
             $el.remove()
-        } else if ($el.is('a') && $el.text() === '注意事項' && contents.eq(i - 1).text() === '\n・') {
-            contents.eq(i - 1).remove()
+        } else if ($el.is('a') && $el.text() === '注意事項' && $contents.eq(i - 1).text() === '\n・') {
+            $contents.eq(i - 1).remove()
             $el.remove()
         }
     })
 
-    $('a:contains("回頁面頂端")', $container).remove()
+    $container.find('a:contains("回頁面頂端")').remove()
 
     // Update contents after removing unwant elements
-    contents = $container.contents()
+    $contents = $container.contents()
 
     // Split into sections by deluxe titles
-    const $deluxeTitles = $('h2.deluxetitle[id]', $container)
-    const sectionIndexs = [0, ...$deluxeTitles.map((_, el) => contents.index(el)).toArray(), contents.length]
+    const $deluxeTitles = $container.find('h2.deluxetitle[id]')
+    const sectionIndexs = [0, ...$deluxeTitles.map((_, el) => $contents.index(el)).toArray(), $contents.length]
 
     for (let i = 0; i < sectionIndexs.length - 1; i++) {
-        const section = contents.slice(sectionIndexs[i] + 1, sectionIndexs[i + 1])
+        const $section = $contents.slice(sectionIndexs[i] + 1, sectionIndexs[i + 1])
         const title = i === 0 ? news.title : $deluxeTitles.eq(i - 1).text()
         const url = i === 0 ? news.url : `${news.url}#${$deluxeTitles.eq(i - 1).attr('id')}`
         const thumbnail = i === 0 ? { url: news.thumbnail } : undefined
 
         // Convert section html to text
-        const text = convert($.html(section), {
+        const text = convert($.html($section), {
             wordwrap: false,
             formatters: {
                 markdownLink: (elem, walk, builder, _) => {
@@ -118,7 +122,7 @@ async function fetchNewsContent(news) {
                 { selector: 'font', format: 'inlineSurround', options: { prefix: '***', suffix: '***' } },
                 { selector: 'span', format: 'inlineSurround', options: { prefix: '***', suffix: '***' } },
                 { selector: 'strong', format: 'inlineSurround', options: { prefix: '***', suffix: '***' } },
-                { selector: 'div.subtitle', format: 'inlineSurround', options: { prefix: '**➤ ', suffix: '**\n' } },
+                { selector: 'div.subtitle', format: 'inlineSurround', options: { prefix: '**✿ ', suffix: '**\n' } },
                 { selector: 'h2.deluxetitle', format: 'inlineSurround', options: { prefix: '**➤ ', suffix: '**\n' } },
             ],
         }).replace(/\n{3,}/g, '\n\n')
@@ -126,7 +130,8 @@ async function fetchNewsContent(news) {
         const description = text.length > 2048 ? `${text.slice(0, 2045)}...` : text
 
         // Extract images from this section
-        const images = $('img', section)
+        const images = $section
+            .find('img')
             .map((_, el) => ({ url: $(el).attr('src') }))
             .toArray()
 
@@ -215,6 +220,7 @@ async function sendPendingNews(queryD1, discordApi) {
             await queryD1.deletePendingNews(news.id)
         } catch (error) {
             await queryD1.releasePendingNews(news.id)
+
             // 50001: Missing Access, 50013: Missing Permissions, 10003: Unknown Channel
             if ([50001, 50013, 10003].includes(error.code)) {
                 await queryD1.unsubscribeChannel(news.channelId)
@@ -252,6 +258,7 @@ async function checkBotPermission(discordApi, channelId) {
             },
         })
         await discordApi.delete(Routes.channelMessage(channelId, message.id))
+
         return true
     } catch (error) {
         return false
@@ -283,7 +290,7 @@ async function handleInteraction(queryD1, discordApi, interaction) {
                     content = '訂閱失敗！請檢查發送訊息、嵌入連結等相關權限。'
                     break
                 }
-                // Let user select categories
+
                 return InteractionResponse(undefined, [
                     {
                         type: ComponentType.ActionRow,
@@ -293,7 +300,7 @@ async function handleInteraction(queryD1, discordApi, interaction) {
                                 custom_id: 'select',
                                 placeholder: '請選擇訂閱類別',
                                 min_values: 1,
-                                max_values: Object.values(categoryMap).length,
+                                max_values: categories.length,
                                 options: componentOptions,
                             },
                         ],
@@ -313,13 +320,12 @@ async function handleInteraction(queryD1, discordApi, interaction) {
     }
 
     if (interaction.type === InteractionType.MessageComponent && interaction.data.component_type === ComponentType.StringSelect) {
-        const allCategories = Object.values(categoryMap)
-        const categories = interaction.data.values.sort((a, b) => allCategories.indexOf(a) - allCategories.indexOf(b))
+        const values = interaction.data.values.sort((a, b) => categories.indexOf(a) - categories.indexOf(b))
 
+        await queryD1.subscribeChannel(interaction.channel.id, values)
         await discordApi.delete(Routes.channelMessage(interaction.channel.id, interaction.message.id))
-        await queryD1.subscribeChannel(interaction.channel.id, categories)
 
-        return InteractionResponse(`訂閱成功！類別：${categories.join('、')}`)
+        return InteractionResponse(`訂閱成功！類別：${values.join('、')}`)
     }
 
     return new Response('Bad request.', { status: 400 })

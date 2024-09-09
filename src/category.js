@@ -1,4 +1,4 @@
-export const categoryMap = {
+const categoryMap = {
     'icon_news_other': '商城',
     'icon_news_event': '活動',
     'icon_news_update': '更新',
@@ -6,6 +6,8 @@ export const categoryMap = {
     'icon_news_important': '重要',
     'icon_news_defect': 'BUG',
 }
+
+export const categories = Object.values(categoryMap)
 
 export const getCategory = (src) => {
     const icon = src.split('/').at(-1).split('.').at(0)
