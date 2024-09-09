@@ -1,9 +1,9 @@
-import { Routes, InteractionType, InteractionResponseType, ComponentType } from 'discord-api-types/v10'
+import * as cheerio from 'cheerio'
+import { convert } from 'html-to-text'
 import { REST } from '@discordjs/rest'
 import { verifyKey } from 'discord-interactions'
-import { parse } from 'node-html-parser'
-import { convert } from 'html-to-text'
-import { categoryMap, componentOptions } from './category'
+import { Routes, InteractionType, InteractionResponseType, ComponentType } from 'discord-api-types/v10'
+import { categoryMap, getCategory, componentOptions } from './category'
 import command from './command'
 import query from './query'
 
@@ -22,25 +22,23 @@ async function fetchNews() {
         throw new Error(`Failed to fetch ${url}, status code: ${response.status}`)
     }
 
-    const content = await response.text()
-    const root = parse(content)
-    const newsNodeList = root.querySelectorAll('div.useBox > ul > li.news_border')
+    const $ = cheerio.load(await response.text())
+    const data = $('div.useBox > ul').extract({
+        news: [
+            {
+                selector: 'li.news_border',
+                value: (el, _) => ({
+                    date: $('time', el).attr('datetime'),
+                    category: getCategory($('img', el).attr('src')),
+                    title: $('p.news_title', el).text(),
+                    url: `${baseurl}${$('a', el).attr('href')}`,
+                    thumbnail: $('img', el).attr('src'),
+                }),
+            },
+        ],
+    })
 
-    for (const newsNode of newsNodeList) {
-        const date = newsNode.querySelector('time').getAttribute('datetime')
-        const title = newsNode.querySelector('p.news_title').text
-        const url = `${baseurl}${newsNode.querySelector('a').getAttribute('href')}`
-        const thumbnail = newsNode.querySelector('img').getAttribute('src')
-        const category = categoryMap[thumbnail.split('icon_news_')[1].split('.')[0]] || ''
-
-        news.unshift({
-            date,
-            category,
-            title,
-            url,
-            thumbnail,
-        })
-    }
+    news.push(...data.news.reverse())
 
     return news
 }
@@ -53,41 +51,51 @@ async function fetchNewsContent(news) {
         throw new Error(`Failed to fetch ${news.url}, status code: ${response.status}`)
     }
 
-    const content = await response.text()
-    const root = parse(content)
-    const newsBox = root.querySelector('div.useBox.newsBox')
-    const children = newsBox.childNodes.slice(
-        newsBox.childNodes.findIndex((child) => child.classList?.contains('smallTitleLine')) + 1,
-        newsBox.childNodes.findIndex((child) => child.classList?.contains('deluxetitle') && child.text === '注意事項')
-    )
+    const $ = cheerio.load(await response.text())
+    const $container = $('div.useBox.newsBox')
 
-    const sections = [[null]]
+    let contents = $container.contents()
+    let start = contents.index($('div.smallTitleLine', $container))
+    let end = contents.index($('h2.deluxetitle:contains("注意事項")', $container))
+    if (end === -1) end = contents.length
 
-    for (const child of children) {
-        if (child.text === '回頁面頂端') continue
+    // Remove unwant elements
+    contents.each((i, el) => {
+        const $el = $(el)
 
-        if (child.classList?.contains('deluxetitle') && child.id) {
-            sections.push([child])
-        } else {
-            sections[sections.length - 1].push(child)
+        if (i <= start || i >= end) {
+            $el.remove()
+        } else if ($el.is('a') && $el.text() === '注意事項' && contents.eq(i - 1).text() === '\n・') {
+            contents.eq(i - 1).remove()
+            $el.remove()
         }
-    }
+    })
 
-    for (const [head, ...contents] of sections) {
-        const title = head === null ? news.title : head.text
-        const url = head === null ? news.url : `${news.url}#${head.id}`
-        const thumbnail = head === null ? { url: news.thumbnail } : undefined
+    $('a:contains("回頁面頂端")', $container).remove()
 
-        const section = parse(contents.join(''))
-        const text = convert(section.toString(), {
+    // Update contents after removing unwant elements
+    contents = $container.contents()
+
+    // Split into sections by deluxe titles
+    const $deluxeTitles = $('h2.deluxetitle[id]', $container)
+    const sectionIndexs = [0, ...$deluxeTitles.map((_, el) => contents.index(el)).toArray(), contents.length]
+
+    for (let i = 0; i < sectionIndexs.length - 1; i++) {
+        const section = contents.slice(sectionIndexs[i] + 1, sectionIndexs[i + 1])
+        const title = i === 0 ? news.title : $deluxeTitles.eq(i - 1).text()
+        const url = i === 0 ? news.url : `${news.url}#${$deluxeTitles.eq(i - 1).attr('id')}`
+        const thumbnail = i === 0 ? { url: news.thumbnail } : undefined
+
+        // Convert section html to text
+        const text = convert($.html(section), {
             wordwrap: false,
             formatters: {
                 markdownLink: (elem, walk, builder, _) => {
-                    const text = elem.children?.filter((child) => child.type === 'text')?.length === 1
+                    const isText = elem.children?.filter((child) => child.type === 'text')?.length === 1
                     const href = elem.attribs?.href || ''
                     const link = href.startsWith('//') ? `https:${href}` : href.startsWith('#') ? `${news.url}${href}` : ''
 
-                    if (text && link) {
+                    if (isText && link) {
                         builder.startNoWrap()
                         builder.addLiteral(`[`)
                         walk(elem.children, builder)
@@ -111,11 +119,16 @@ async function fetchNewsContent(news) {
                 { selector: 'span', format: 'inlineSurround', options: { prefix: '***', suffix: '***' } },
                 { selector: 'strong', format: 'inlineSurround', options: { prefix: '***', suffix: '***' } },
                 { selector: 'div.subtitle', format: 'inlineSurround', options: { prefix: '**➤ ', suffix: '**\n' } },
+                { selector: 'h2.deluxetitle', format: 'inlineSurround', options: { prefix: '**➤ ', suffix: '**\n' } },
             ],
         }).replace(/\n{3,}/g, '\n\n')
 
         const description = text.length > 2048 ? `${text.slice(0, 2045)}...` : text
-        const images = section.querySelectorAll('img').map((img) => ({ url: img.getAttribute('src') }))
+
+        // Extract images from this section
+        const images = $('img', section)
+            .map((_, el) => ({ url: $(el).attr('src') }))
+            .toArray()
 
         embeds.push({
             title,

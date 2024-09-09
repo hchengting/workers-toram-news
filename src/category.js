@@ -1,10 +1,15 @@
 export const categoryMap = {
-    'other': '商城',
-    'event': '活動',
-    'update': '更新',
-    'maintenance': '維修',
-    'important': '重要',
-    'defect': 'BUG',
+    'icon_news_other': '商城',
+    'icon_news_event': '活動',
+    'icon_news_update': '更新',
+    'icon_news_maintenance': '維修',
+    'icon_news_important': '重要',
+    'icon_news_defect': 'BUG',
+}
+
+export const getCategory = (src) => {
+    const icon = src.split('/').at(-1).split('.').at(0)
+    return categoryMap[icon] || ''
 }
 
 export const componentOptions = [
