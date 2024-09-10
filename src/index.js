@@ -7,9 +7,7 @@ import { categories, getCategory, componentOptions } from './category'
 import command from './command'
 import query from './query'
 
-const baseurl = 'https://tw.toram.jp'
-const path = '/information'
-const url = `${baseurl}${path}`
+const url = 'https://tw.toram.jp/information'
 const headers = {
     'User-Agent': 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36',
 }
@@ -22,7 +20,7 @@ async function fetchNews() {
         throw new Error(`Failed to fetch ${url}, status code: ${response.status}`)
     }
 
-    const $ = cheerio.load(await response.text())
+    const $ = cheerio.load(await response.text(), { baseURI: url })
     const data = $('div.useBox > ul').extract({
         news: [
             {
@@ -32,10 +30,10 @@ async function fetchNews() {
 
                     return {
                         date: $el.find('time').attr('datetime'),
-                        category: getCategory($el.find('img').attr('src')),
+                        category: getCategory($el.find('img').prop('src')),
                         title: $el.find('p.news_title').text(),
-                        url: `${baseurl}${$el.find('a').attr('href')}`,
-                        thumbnail: $el.find('img').attr('src'),
+                        url: $el.find('a').prop('href'),
+                        thumbnail: $el.find('img').prop('src'),
                     }
                 },
             },
@@ -55,7 +53,7 @@ async function fetchNewsContent(news) {
         throw new Error(`Failed to fetch ${news.url}, status code: ${response.status}`)
     }
 
-    const $ = cheerio.load(await response.text())
+    const $ = cheerio.load(await response.text(), { baseURI: news.url })
     const $container = $('div.useBox.newsBox')
 
     let $contents = $container.contents()
@@ -76,8 +74,12 @@ async function fetchNewsContent(news) {
     })
 
     $container.find('a:contains("回頁面頂端")').remove()
+    $container.find('h2.deluxetitle:contains("指定怪物")').nextAll().filter('br').remove()
 
-    // Update contents after removing unwant elements
+    // Resolve relative href
+    $container.find('a').each((_, el) => $(el).attr('href', $(el).prop('href')))
+
+    // Update contents
     $contents = $container.contents()
 
     // Split into sections by deluxe titles
@@ -97,19 +99,18 @@ async function fetchNewsContent(news) {
                 markdownLink: (elem, walk, builder, _) => {
                     const isText = elem.children?.filter((child) => child.type === 'text')?.length === 1
                     const href = elem.attribs?.href || ''
-                    const link = href.startsWith('//') ? `https:${href}` : href.startsWith('#') ? `${news.url}${href}` : ''
 
-                    if (isText && link) {
+                    if (isText && href) {
                         builder.startNoWrap()
                         builder.addLiteral(`[`)
                         walk(elem.children, builder)
                         builder.addLiteral(`](`)
-                        builder.addInline(link, { noWordTransform: true })
+                        builder.addInline(href, { noWordTransform: true })
                         builder.addLiteral(`)`)
                         builder.stopNoWrap()
                     } else {
                         walk(elem.children, builder)
-                        builder.addInline(link, { noWordTransform: true })
+                        builder.addInline(href, { noWordTransform: true })
                     }
                 },
             },
@@ -118,12 +119,13 @@ async function fetchNewsContent(news) {
                 { selector: 'hr', format: 'skip' },
                 { selector: 'img', format: 'skip' },
                 { selector: 'button', format: 'skip' },
-                { selector: 'table', format: 'dataTable' },
-                { selector: 'font', format: 'inlineSurround', options: { prefix: '***', suffix: '***' } },
-                { selector: 'span', format: 'inlineSurround', options: { prefix: '***', suffix: '***' } },
-                { selector: 'strong', format: 'inlineSurround', options: { prefix: '***', suffix: '***' } },
+                { selector: 'div[align=center]', format: 'skip' },
+                { selector: 'table.u-table--simple', format: 'dataTable' },
+                { selector: 'font', format: 'inlineSurround', options: { prefix: '**', suffix: '**' } },
+                { selector: 'span', format: 'inlineSurround', options: { prefix: '**', suffix: '**' } },
+                { selector: 'strong', format: 'inlineSurround', options: { prefix: '**', suffix: '**' } },
                 { selector: 'div.subtitle', format: 'inlineSurround', options: { prefix: '**✿ ', suffix: '**\n' } },
-                { selector: 'h2.deluxetitle', format: 'inlineSurround', options: { prefix: '**➤ ', suffix: '**\n' } },
+                { selector: 'h2.deluxetitle', format: 'inlineSurround', options: { prefix: '### ➤ ', suffix: '\n' } },
             ],
         }).replace(/\n{3,}/g, '\n\n')
 
@@ -132,7 +134,7 @@ async function fetchNewsContent(news) {
         // Extract images from this section
         const images = $section
             .find('img')
-            .map((_, el) => ({ url: $(el).attr('src') }))
+            .map((_, el) => ({ url: $(el).prop('src') }))
             .toArray()
 
         embeds.push({
