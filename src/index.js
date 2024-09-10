@@ -1,9 +1,10 @@
 import * as cheerio from 'cheerio'
-import { convert } from 'html-to-text'
+import { htmlToText } from 'html-to-text'
 import { REST } from '@discordjs/rest'
 import { verifyKey } from 'discord-interactions'
 import { Routes, InteractionType, InteractionResponseType, ComponentType } from 'discord-api-types/v10'
 import { categories, getCategory, componentOptions } from './category'
+import formatters from './formatter'
 import command from './command'
 import query from './query'
 
@@ -93,34 +94,16 @@ async function fetchNewsContent(news) {
         const thumbnail = i === 0 ? { url: news.thumbnail } : undefined
 
         // Convert section html to text
-        const text = convert($.html($section), {
+        const text = htmlToText($.html($section), {
             wordwrap: false,
-            formatters: {
-                markdownLink: (elem, walk, builder, _) => {
-                    const isText = elem.children?.filter((child) => child.type === 'text')?.length === 1
-                    const href = elem.attribs?.href || ''
-
-                    if (isText && href) {
-                        builder.startNoWrap()
-                        builder.addLiteral(`[`)
-                        walk(elem.children, builder)
-                        builder.addLiteral(`](`)
-                        builder.addInline(href, { noWordTransform: true })
-                        builder.addLiteral(`)`)
-                        builder.stopNoWrap()
-                    } else {
-                        walk(elem.children, builder)
-                        builder.addInline(href, { noWordTransform: true })
-                    }
-                },
-            },
+            formatters,
             selectors: [
-                { selector: 'a', format: 'markdownLink' },
+                { selector: 'a', format: 'formatAnchor' },
+                { selector: 'table.u-table--simple', format: 'formatTable' },
                 { selector: 'hr', format: 'skip' },
                 { selector: 'img', format: 'skip' },
                 { selector: 'button', format: 'skip' },
                 { selector: 'div[align=center]', format: 'skip' },
-                { selector: 'table.u-table--simple', format: 'dataTable' },
                 { selector: 'font', format: 'inlineSurround', options: { prefix: '**', suffix: '**' } },
                 { selector: 'span', format: 'inlineSurround', options: { prefix: '**', suffix: '**' } },
                 { selector: 'strong', format: 'inlineSurround', options: { prefix: '**', suffix: '**' } },
