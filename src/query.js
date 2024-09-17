@@ -49,19 +49,20 @@ const query = (db) => ({
         return !!(await db.prepare('SELECT * FROM channel_subscriptions WHERE channel_id = ? LIMIT 1').bind(id).first())
     },
     // Insert channel subscriptions with categories
-    subscribeChannel: async (id, categories) => {
+    channelSubscribe: async (id, categories) => {
         const stmts = [
+            db.prepare('DELETE FROM pending_news WHERE channel_id = ?'),
             db.prepare('DELETE FROM channel_subscriptions WHERE channel_id = ?'),
             db.prepare('INSERT INTO channel_subscriptions (channel_id, category) VALUES (?, ?)'),
         ]
 
-        await db.batch([stmts[0].bind(id), ...categories.map((category) => stmts[1].bind(id, category))])
+        await db.batch([stmts[0].bind(id), stmts[1].bind(id), ...categories.map((category) => stmts[2].bind(id, category))])
     },
-    // Delete channel from channel subscriptions and pending news
-    unsubscribeChannel: async (id) => {
+    // Delete channel from pending news and channel subscriptions
+    channelUnsubscribe: async (id) => {
         const stmts = [
-            db.prepare('DELETE FROM channel_subscriptions WHERE channel_id = ?'),
             db.prepare('DELETE FROM pending_news WHERE channel_id = ?'),
+            db.prepare('DELETE FROM channel_subscriptions WHERE channel_id = ?'),
         ]
 
         await db.batch([stmts[0].bind(id), stmts[1].bind(id)])

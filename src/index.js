@@ -75,7 +75,7 @@ async function fetchNewsContent(news) {
     })
 
     $container.find('a:contains("回頁面頂端")').remove()
-    $container.find('h2.deluxetitle:contains("指定怪物")').nextAll().filter('br').remove()
+    $container.find('h2.deluxetitle:contains("指定怪物")').nextAll('br').remove()
 
     // Resolve relative href
     $container.find('a').each((_, el) => $(el).attr('href', $(el).prop('href')))
@@ -94,7 +94,7 @@ async function fetchNewsContent(news) {
         const thumbnail = i === 0 ? { url: news.thumbnail } : undefined
 
         // Convert section html to text
-        const text = htmlToText($.html($section), {
+        const description = htmlToText($.html($section), {
             wordwrap: false,
             formatters,
             selectors: [
@@ -112,8 +112,6 @@ async function fetchNewsContent(news) {
             ],
         }).replace(/\n{3,}/g, '\n\n')
 
-        const description = text.length > 2048 ? `${text.slice(0, 2045)}...` : text
-
         // Extract images from this section
         const images = $section
             .find('img')
@@ -121,17 +119,15 @@ async function fetchNewsContent(news) {
             .toArray()
 
         embeds.push({
-            title,
+            title: title.slice(0, 128),
             url,
             thumbnail,
-            description,
+            description: description.slice(0, 2048),
             image: images.shift(),
             category: news.category,
         })
 
-        for (const image of images) {
-            embeds.push({ url, image, category: news.category })
-        }
+        embeds.push(...images.map((image) => ({ url, image, category: news.category })))
     }
 
     return embeds
@@ -152,13 +148,7 @@ async function checkNewsDifference(queryD1, news) {
 }
 
 async function generateNewsEmbeds(updates) {
-    const newsEmbeds = []
-
-    for (const news of updates) {
-        const embeds = await fetchNewsContent(news)
-        newsEmbeds.push(embeds)
-        await new Promise((resolve) => setTimeout(resolve, 1000))
-    }
+    const newsEmbeds = await Promise.all(updates.map(fetchNewsContent))
 
     function* chunks(embeds) {
         const maxEmbeds = 10
@@ -172,9 +162,7 @@ async function generateNewsEmbeds(updates) {
                 const embed = embeds[j]
                 const chars = (embed.title?.length || 0) + (embed.description?.length || 0)
 
-                if (totalChars + chars > maxChars) {
-                    break
-                }
+                if (totalChars + chars > maxChars) break
 
                 totalChars += chars
                 j++
@@ -208,7 +196,7 @@ async function sendPendingNews(queryD1, discordApi) {
 
             // 50001: Missing Access, 50013: Missing Permissions, 10003: Unknown Channel
             if ([50001, 50013, 10003].includes(error.code)) {
-                await queryD1.unsubscribeChannel(news.channelId)
+                await queryD1.channelUnsubscribe(news.channelId)
             } else {
                 throw error
             }
@@ -295,7 +283,7 @@ async function handleInteraction(queryD1, discordApi, interaction) {
                 if (!(await queryD1.isChannelSubscribed(channelId))) {
                     content = '未訂閱！'
                 } else {
-                    await queryD1.unsubscribeChannel(channelId)
+                    await queryD1.channelUnsubscribe(channelId)
                     content = '取消訂閱成功！'
                 }
                 break
@@ -307,7 +295,7 @@ async function handleInteraction(queryD1, discordApi, interaction) {
     if (interaction.type === InteractionType.MessageComponent && interaction.data.component_type === ComponentType.StringSelect) {
         const values = interaction.data.values.sort((a, b) => categories.indexOf(a) - categories.indexOf(b))
 
-        await queryD1.subscribeChannel(interaction.channel.id, values)
+        await queryD1.channelSubscribe(interaction.channel.id, values)
         await discordApi.delete(Routes.channelMessage(interaction.channel.id, interaction.message.id))
 
         return InteractionResponse(`訂閱成功！類別：${values.join('、')}`)

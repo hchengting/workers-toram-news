@@ -121,6 +121,8 @@ Use `/subscribe` command in the channel.
 
 ## References
 
+- [Welcome to Cheerio! | cheerio](https://cheerio.js.org/docs/intro)
+- [html-to-text - npm](https://www.npmjs.com/package/html-to-text)
 - [Discord Developer Portal — Documentation — Hosting on Cloudflare Workers](https://discord.com/developers/docs/tutorials/hosting-on-cloudflare-workers)
 - [discord/cloudflare-sample-app: Example discord bot using Cloudflare Workers (github.com)](https://github.com/discord/cloudflare-sample-app)
 - [@discordjs/rest](https://discord.js.org/docs/packages/rest/main)
