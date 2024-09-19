@@ -178,9 +178,7 @@ async function generateNewsEmbeds(updates) {
 }
 
 async function sendPendingNews(queryD1, discordApi) {
-    let count = 0
-
-    while (count++ < 40) {
+    while (true) {
         const news = await queryD1.getFirstPendingNews()
         if (!news || news.sending) break
 
@@ -225,7 +223,7 @@ async function checkBotPermission(discordApi, channelId) {
                     {
                         title: '處理中',
                         description: '請稍後...',
-                        url: 'https://example.com',
+                        url: 'https://discord.com',
                     },
                 ],
             },
@@ -238,19 +236,14 @@ async function checkBotPermission(discordApi, channelId) {
     }
 }
 
-function InteractionResponse(content, components = undefined, type = InteractionResponseType.ChannelMessageWithSource) {
-    const body = JSON.stringify({ data: { content, components }, type })
-
-    return new Response(body, {
-        headers: {
-            'content-type': 'application/json',
-        },
-    })
-}
-
 async function handleInteraction(queryD1, discordApi, interaction) {
+    const InteractionResponse = ({ content, components, type = InteractionResponseType.ChannelMessageWithSource }) =>
+        new Response(JSON.stringify({ data: { content, components }, type }), {
+            headers: { 'content-type': 'application/json' },
+        })
+
     if (interaction.type === InteractionType.Ping) {
-        return InteractionResponse(undefined, undefined, InteractionResponseType.Pong)
+        return InteractionResponse({ type: InteractionResponseType.Pong })
     }
 
     if (interaction.type === InteractionType.ApplicationCommand) {
@@ -264,21 +257,23 @@ async function handleInteraction(queryD1, discordApi, interaction) {
                     break
                 }
 
-                return InteractionResponse(undefined, [
-                    {
-                        type: ComponentType.ActionRow,
-                        components: [
-                            {
-                                type: ComponentType.StringSelect,
-                                custom_id: 'select',
-                                placeholder: '請選擇訂閱類別',
-                                min_values: 1,
-                                max_values: categories.length,
-                                options: componentOptions,
-                            },
-                        ],
-                    },
-                ])
+                return InteractionResponse({
+                    components: [
+                        {
+                            type: ComponentType.ActionRow,
+                            components: [
+                                {
+                                    type: ComponentType.StringSelect,
+                                    custom_id: 'select',
+                                    placeholder: '請選擇訂閱類別',
+                                    min_values: 1,
+                                    max_values: categories.length,
+                                    options: componentOptions,
+                                },
+                            ],
+                        },
+                    ],
+                })
             case command.UNSUBSCRIBE.name:
                 if (!(await queryD1.isChannelSubscribed(channelId))) {
                     content = '未訂閱！'
@@ -289,7 +284,7 @@ async function handleInteraction(queryD1, discordApi, interaction) {
                 break
         }
 
-        return InteractionResponse(content)
+        return InteractionResponse({ content })
     }
 
     if (interaction.type === InteractionType.MessageComponent && interaction.data.component_type === ComponentType.StringSelect) {
@@ -298,7 +293,7 @@ async function handleInteraction(queryD1, discordApi, interaction) {
         await queryD1.channelSubscribe(interaction.channel.id, values)
         await discordApi.delete(Routes.channelMessage(interaction.channel.id, interaction.message.id))
 
-        return InteractionResponse(`訂閱成功！類別：${values.join('、')}`)
+        return InteractionResponse({ content: `訂閱成功！類別：${values.join('、')}` })
     }
 
     return new Response('Bad request.', { status: 400 })
