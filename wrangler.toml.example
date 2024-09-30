@@ -6,6 +6,9 @@ compatibility_flags = ["nodejs_compat"]
 
 workers_dev = true
 
+[observability]
+enabled = true
+
 [triggers]
 crons = ["* * * * *"]
 
