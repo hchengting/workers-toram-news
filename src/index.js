@@ -104,6 +104,7 @@ async function fetchNewsContent(news) {
                 { selector: 'img', format: 'skip' },
                 { selector: 'button', format: 'skip' },
                 { selector: 'div[align=center]', format: 'skip' },
+                { selector: 'del', format: 'inlineSurround', options: { prefix: '~~', suffix: '~~' } },
                 { selector: 'font', format: 'inlineSurround', options: { prefix: '**', suffix: '**' } },
                 { selector: 'span', format: 'inlineSurround', options: { prefix: '**', suffix: '**' } },
                 { selector: 'strong', format: 'inlineSurround', options: { prefix: '**', suffix: '**' } },
@@ -179,8 +180,8 @@ async function generateNewsEmbeds(updates) {
 
 async function sendPendingNews(queryD1, discordApi) {
     while (true) {
-        const news = await queryD1.getFirstPendingNews()
-        if (!news || news.sending) break
+        const news = await queryD1.retrievePendingNews()
+        if (!news) break
 
         try {
             await discordApi.post(Routes.channelMessages(news.channelId), {
@@ -190,7 +191,7 @@ async function sendPendingNews(queryD1, discordApi) {
             })
             await queryD1.deletePendingNews(news.id)
         } catch (error) {
-            await queryD1.releasePendingNews(news.id)
+            await queryD1.clearPendingNewsRetrieval(news.id)
 
             // 50001: Missing Access, 50013: Missing Permissions, 10003: Unknown Channel
             if ([50001, 50013, 10003].includes(error.code)) {

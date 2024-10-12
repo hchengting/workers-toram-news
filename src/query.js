@@ -25,24 +25,23 @@ const query = (db) => ({
     },
     // List all latest news
     listLatestNews: async () => {
-        return (await db.prepare('SELECT date, category, title, url, thumbnail FROM latest_news ORDER BY id ASC').all()).results
+        return (await db.prepare('SELECT date, category, title, url, thumbnail FROM latest_news ORDER BY id ASC').run()).results
     },
-    // Get the first pending news and mark it as sending
-    getFirstPendingNews: async () => {
-        const stmts = [
-            db.prepare('SELECT id, channel_id AS channelId, body, sending FROM pending_news ORDER BY id ASC LIMIT 1'),
-            db.prepare('UPDATE pending_news SET sending = TRUE WHERE id = (SELECT id FROM pending_news ORDER BY id ASC LIMIT 1)'),
-        ]
+    // If the oldest pending news has not been retrieved for more than 5 minutes, retrieve it and update its retrieval timestamp
+    retrievePendingNews: async () => {
+        const stmt = db.prepare(
+            'UPDATE pending_news SET retrieved_at = unixepoch() WHERE id = (SELECT MIN(id) FROM pending_news) AND unixepoch() - retrieved_at > 300 RETURNING id, channel_id AS channelId, body'
+        )
 
-        return (await db.batch([stmts[0], stmts[1]]))[0].results[0]
+        return await stmt.first()
     },
     // Delete pending news by id
     deletePendingNews: async (id) => {
         await db.prepare('DELETE FROM pending_news WHERE id = ?').bind(id).run()
     },
-    // Release pending news by marking it as not sending
-    releasePendingNews: async (id) => {
-        await db.prepare('UPDATE pending_news SET sending = FALSE WHERE id = ?').bind(id).run()
+    // Clear pending news retrieval timestamp by id
+    clearPendingNewsRetrieval: async (id) => {
+        await db.prepare('UPDATE pending_news SET retrieved_at = 0 WHERE id = ?').bind(id).run()
     },
     // Check if a channel is subscribed to any category
     isChannelSubscribed: async (id) => {
